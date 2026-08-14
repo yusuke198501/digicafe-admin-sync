@@ -1,0 +1,36 @@
+name: mailnum2 を目標＆振分へ反映
+
+on:
+  workflow_dispatch:
+    inputs:
+      report_hour:
+        description: 書き込む論理時刻
+        required: true
+        type: choice
+        options: ['9', '12', '15', '18', '21', '24', '27']
+  schedule:
+    - cron: '7 0,3,6,9,12,15,18 * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - run: npm install
+
+      - run: npm run sync-mailnum2
+        env:
+          GITHUB_EVENT_SCHEDULE: ${{ github.event.schedule }}
+          REPORT_HOUR: ${{ inputs.report_hour }}
+          PHPLITEADMIN_PASSWORD: ${{ secrets.PHPLITEADMIN_PASSWORD }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          SPREADSHEET_ID: ${{ secrets.MAILNUM2_SPREADSHEET_ID }}
