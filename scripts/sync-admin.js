@@ -34,8 +34,12 @@ function jstYesterday() {
     day: '2-digit',
   }).formatToParts(new Date());
 
-  const part = (type) => parts.find((v) => v.type === type).value;
-  const date = new Date(Date.UTC(Number(part('year')), Number(part('month')) - 1, Number(part('day'))));
+  const part = (type) => parts.find((value) => value.type === type).value;
+  const date = new Date(Date.UTC(
+    Number(part('year')),
+    Number(part('month')) - 1,
+    Number(part('day')),
+  ));
   date.setUTCDate(date.getUTCDate() - 1);
 
   return {
@@ -50,6 +54,18 @@ function normalize(value) {
   return String(value ?? '').replace(/\s/g, '').replace(/-/g, '/');
 }
 
+// 2026-08-13 / 2026/08/13 / 2026/8/13 をすべて 2026/8/13 に統一する
+function dateKey(value) {
+  const text = String(value ?? '').trim();
+  const match = text.match(/(\d{4})\D+(\d{1,2})\D+(\d{1,2})/);
+
+  if (match) {
+    return `${match[1]}/${Number(match[2])}/${Number(match[3])}`;
+  }
+
+  return normalize(text);
+}
+
 function toNumber(value) {
   const matched = String(value).match(/-?[\d,]+/);
   if (!matched) throw new Error(`数値を読めません: ${value}`);
@@ -61,7 +77,9 @@ async function login(client) {
   const $ = cheerio.load(initial.data);
   const csrf = $('input[name="signin[_csrf_token]"]').attr('value');
 
-  if (!csrf) throw new Error('ログイン画面のCSRFトークンを取得できません。');
+  if (!csrf) {
+    throw new Error('ログイン画面のCSRFトークンを取得できません。');
+  }
 
   const form = new URLSearchParams({
     'signin[username]': process.env.ADMIN_DIGICAFE_USERNAME,
@@ -71,7 +89,10 @@ async function login(client) {
   });
 
   const response = await client.post(LOGIN_URL, form, {
-    headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' },
+    headers: {
+      ...headers,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
     maxRedirects: 0,
     validateStatus: (status) => [200, 301, 302, 303].includes(status),
   });
@@ -83,11 +104,13 @@ async function login(client) {
 
 async function fetchMetrics(client, target) {
   const ids = [6, 7, 15, 21, 143, 144, 173, 176, 183];
+
   const query = new URLSearchParams({
     year: String(target.year),
     month: String(target.month),
     filter: '検索',
   });
+
   ids.forEach((id) => query.append('associated_items[]', String(id)));
 
   const url = `https://admin.digicafe.jp/dadmin.php/ak_stats_item/analytics_month?${query}`;
@@ -103,17 +126,23 @@ async function fetchMetrics(client, target) {
     const rows = $(table).find('tr').toArray();
 
     for (let headerIndex = 0; headerIndex < rows.length; headerIndex += 1) {
-      const headerCells = $(rows[headerIndex]).find('th,td').toArray()
+      const headerCells = $(rows[headerIndex])
+        .find('th,td')
+        .toArray()
         .map((cell) => normalize($(cell).text()));
+
       const indices = labels.map((label) => headerCells.indexOf(normalize(label)));
 
       if (indices.some((index) => index < 0)) continue;
 
       for (let rowIndex = headerIndex + 1; rowIndex < rows.length; rowIndex += 1) {
-        const cells = $(rows[rowIndex]).find('th,td').toArray()
+        const cells = $(rows[rowIndex])
+          .find('th,td')
+          .toArray()
           .map((cell) => $(cell).text().trim());
 
-        if (normalize(cells[0]) !== normalize(target.text)) continue;
+        if (dateKey(cells[0]) !== target.text) continue;
+
         return indices.map((index) => toNumber(cells[index]));
       }
     }
@@ -124,11 +153,16 @@ async function fetchMetrics(client, target) {
 
 async function updateSheet(target, values) {
   const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
+
   const auth = new google.auth.GoogleAuth({
     credentials,
     scopes: ['https://www.googleapis.com/auth/spreadsheets'],
   });
-  const sheets = google.sheets({ version: 'v4', auth });
+
+  const sheets = google.sheets({
+    version: 'v4',
+    auth,
+  });
 
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: SPREADSHEET_ID,
@@ -136,7 +170,7 @@ async function updateSheet(target, values) {
   });
 
   const rowIndex = (response.data.values ?? [])
-    .findIndex(([value]) => normalize(value) === normalize(target.text));
+    .findIndex(([value]) => dateKey(value) === target.text);
 
   if (rowIndex < 0) {
     throw new Error(`${SHEET_NAME}のA列に ${target.text} がありません。`);
@@ -146,18 +180,22 @@ async function updateSheet(target, values) {
     spreadsheetId: SPREADSHEET_ID,
     range: `'${SHEET_NAME}'!B${rowIndex + 1}:J${rowIndex + 1}`,
     valueInputOption: 'RAW',
-    requestBody: { values: [values] },
+    requestBody: {
+      values: [values],
+    },
   });
 }
 
 async function main() {
   const target = jstYesterday();
+
   const client = wrapper(axios.create({
     jar: new CookieJar(),
     validateStatus: () => true,
   }));
 
   await login(client);
+
   const values = await fetchMetrics(client, target);
   await updateSheet(target, values);
 
