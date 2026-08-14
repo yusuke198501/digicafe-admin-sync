@@ -141,7 +141,8 @@ function latestMetrics(html, source) {
     const receiveIndex = headers.indexOf('receivemails');
     const mktReceiveIndex = headers.indexOf('mkt_receivemails');
     const grossDauIndex = headers.indexOf('gross_dau');
-    if ([datetimeIndex, receiveIndex, mktReceiveIndex, grossDauIndex].some((index) => index < 0)) continue;
+    const boxAReceiveIndex = headers.indexOf('box_a_receivemails');
+    if ([datetimeIndex, receiveIndex, mktReceiveIndex, grossDauIndex, boxAReceiveIndex].some((index) => index < 0)) continue;
 
     const values = rows.slice(headerIndex + 1)
       .map((row) => rowCells(row).map((cell) => $(cell).text().trim()))
@@ -151,10 +152,12 @@ function latestMetrics(html, source) {
         receivemails: Number(cells[receiveIndex]),
         mktReceivemails: Number(cells[mktReceiveIndex]),
         grossDau: Number(cells[grossDauIndex]),
+        boxAReceivemails: Number(cells[boxAReceiveIndex]),
       }))
       .filter((row) => Number.isFinite(row.receivemails)
         && Number.isFinite(row.mktReceivemails)
-        && Number.isFinite(row.grossDau));
+        && Number.isFinite(row.grossDau)
+        && Number.isFinite(row.boxAReceivemails));
 
     if (values.length) {
       const matchingRows = values.filter((row) => matchesSourceHour(row.datetime, source));
@@ -188,6 +191,22 @@ function locateTargetRow(values, date, hour) {
   return rowIndex + 1;
 }
 
+function locateBoxTargetRow(values, date, hour) {
+  const titleIndex = values.findIndex(([columnA, columnB]) => text(columnA).startsWith(date.label) && text(columnB) === 'DC');
+  if (titleIndex < 0) throw new Error(`${date.label} DC block was not found in ${SHEET_NAME}.`);
+
+  const boxHeaderIndex = values.findIndex((columns, index) => index > titleIndex
+    && index < titleIndex + 50
+    && columns.some((column) => text(column).startsWith('BOX別')));
+  if (boxHeaderIndex < 0) throw new Error(`The BOX table was not found below the ${date.label} DC block.`);
+
+  const rowIndex = values.findIndex((columns, index) => index > boxHeaderIndex
+    && index < boxHeaderIndex + 10
+    && columns.some((column) => text(column) === String(hour)));
+  if (rowIndex < 0) throw new Error(`${hour} o'clock row was not found in the ${date.label} BOX table.`);
+  return rowIndex + 1;
+}
+
 async function updateSheet(metrics, hour, date) {
   const auth = new google.auth.GoogleAuth({
     credentials: JSON.parse(required('GOOGLE_SERVICE_ACCOUNT_JSON')),
@@ -197,7 +216,9 @@ async function updateSheet(metrics, hour, date) {
   const spreadsheetId = required('SPREADSHEET_ID');
   const range = `'${SHEET_NAME}'!A:C`;
   const source = await sheets.spreadsheets.values.get({ spreadsheetId, range });
-  const row = locateTargetRow(source.data.values ?? [], date, hour);
+  const values = source.data.values ?? [];
+  const row = locateTargetRow(values, date, hour);
+  const boxRow = locateBoxTargetRow(values, date, hour);
 
   await sheets.spreadsheets.values.batchUpdate({
     spreadsheetId,
@@ -207,10 +228,11 @@ async function updateSheet(metrics, hour, date) {
         { range: `'${SHEET_NAME}'!C${row}`, values: [[metrics.receivemails]] },
         { range: `'${SHEET_NAME}'!E${row}`, values: [[metrics.mktReceivemails]] },
         { range: `'${SHEET_NAME}'!I${row}`, values: [[metrics.grossDau]] },
+        { range: `'${SHEET_NAME}'!C${boxRow}`, values: [[metrics.boxAReceivemails]] },
       ],
     },
   });
-  return row;
+  return { row, boxRow };
 }
 
 async function main() {
@@ -220,8 +242,8 @@ async function main() {
   const client = wrapper(axios.create({ jar: new CookieJar(), validateStatus: (status) => status >= 200 && status < 400 }));
   const html = await loginIfNeeded(client, process.env.PHPLITEADMIN_URL || DEFAULT_PHPLITEADMIN_URL);
   const metrics = latestMetrics(html, source);
-  const row = await updateSheet(metrics, hour, date);
-  console.log(`${date.label} ${hour}:00 -> row ${row}; receivemails=${metrics.receivemails}, mkt_receivemails=${metrics.mktReceivemails}, gross_dau=${metrics.grossDau}; source=${metrics.datetime}`);
+  const { row, boxRow } = await updateSheet(metrics, hour, date);
+  console.log(`${date.label} ${hour}:00 -> row ${row}, box row ${boxRow}; receivemails=${metrics.receivemails}, mkt_receivemails=${metrics.mktReceivemails}, gross_dau=${metrics.grossDau}, box_a_receivemails=${metrics.boxAReceivemails}; source=${metrics.datetime}`);
 }
 
 main().catch((error) => {
