@@ -54,13 +54,15 @@ function normalize(value) {
   return String(value ?? '').replace(/\s/g, '').replace(/-/g, '/');
 }
 
-// 2026-08-13 / 2026/08/13 / 2026/8/13 をすべて 2026/8/13 に統一する
+// 26/8/13(水) / 2026-08-13 / 2026/08/13 / 2026/8/13 をすべて 2026/8/13 に統一する
 function dateKey(value) {
   const text = String(value ?? '').trim();
-  const match = text.match(/(\d{4})\D+(\d{1,2})\D+(\d{1,2})/);
+  const match = text.match(/(\d{2,4})\D+(\d{1,2})\D+(\d{1,2})/);
 
   if (match) {
-    return `${match[1]}/${Number(match[2])}/${Number(match[3])}`;
+    const rawYear = Number(match[1]);
+    const year = rawYear < 100 ? 2000 + rawYear : rawYear;
+    return `${year}/${Number(match[2])}/${Number(match[3])}`;
   }
 
   return normalize(text);
