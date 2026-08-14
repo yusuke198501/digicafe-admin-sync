@@ -8,13 +8,13 @@ const DEFAULT_PHPLITEADMIN_URL = 'https://smlovely.chatlove.xyz/dc/admin/phplite
 const SHEET_NAME = '目標＆振分 のコピー';
 
 const SCHEDULE_HOURS = new Map([
-  ['7 0 * * *', 9],
-  ['7 3 * * *', 12],
-  ['7 6 * * *', 15],
-  ['7 9 * * *', 18],
-  ['7 12 * * *', 21],
-  ['7 15 * * *', 24],
-  ['7 18 * * *', 27],
+  ['7 1 * * *', 9],
+  ['7 4 * * *', 12],
+  ['7 7 * * *', 15],
+  ['7 10 * * *', 18],
+  ['7 13 * * *', 21],
+  ['7 16 * * *', 24],
+  ['7 19 * * *', 27],
 ]);
 
 function required(name) {
@@ -59,6 +59,7 @@ function reportDate(hour) {
   const date = new Date(Date.UTC(year, month - 1, day));
   if (hour >= 24) date.setUTCDate(date.getUTCDate() - 1);
   return {
+    year: date.getUTCFullYear(),
     month: date.getUTCMonth() + 1,
     day: date.getUTCDate(),
     label: `${date.getUTCMonth() + 1}/${date.getUTCDate()}`,
@@ -96,7 +97,27 @@ async function loginIfNeeded(client, url) {
   return authenticated.data;
 }
 
-function latestMetrics(html) {
+function sourceTimestamp(date, hour) {
+  const source = new Date(Date.UTC(date.year, date.month - 1, date.day));
+  if (hour >= 24) source.setUTCDate(source.getUTCDate() + 1);
+  return {
+    year: source.getUTCFullYear(),
+    month: source.getUTCMonth() + 1,
+    day: source.getUTCDate(),
+    hour: hour % 24,
+  };
+}
+
+function matchesSourceHour(datetime, source) {
+  const matched = String(datetime).match(/(\d{4})-(\d{1,2})-(\d{1,2})\D+(\d{1,2})/);
+  return Boolean(matched
+    && Number(matched[1]) === source.year
+    && Number(matched[2]) === source.month
+    && Number(matched[3]) === source.day
+    && Number(matched[4]) === source.hour);
+}
+
+function latestMetrics(html, source) {
   const $ = cheerio.load(html);
   const inspectedHeaders = [];
   for (const table of $('table').toArray()) {
@@ -131,8 +152,13 @@ function latestMetrics(html) {
       .filter((row) => Number.isFinite(row.receivemails) && Number.isFinite(row.mktReceivemails));
 
     if (values.length) {
-      values.sort((a, b) => b.datetime.localeCompare(a.datetime));
-      return values[0];
+      const matchingRows = values.filter((row) => matchesSourceHour(row.datetime, source));
+      if (matchingRows.length) {
+        matchingRows.sort((a, b) => b.datetime.localeCompare(a.datetime));
+        return matchingRows[0];
+      }
+      const expected = `${source.year}-${String(source.month).padStart(2, '0')}-${String(source.day).padStart(2, '0')} ${String(source.hour).padStart(2, '0')}:xx`;
+      throw new Error(`mailnum2 does not contain a record for ${expected}.`);
     }
   }
   const title = $('title').first().text().trim().replace(/\s+/g, ' ');
@@ -184,9 +210,10 @@ async function updateSheet(metrics, hour, date) {
 async function main() {
   const hour = reportHour();
   const date = reportDate(hour);
+  const source = sourceTimestamp(date, hour);
   const client = wrapper(axios.create({ jar: new CookieJar(), validateStatus: (status) => status >= 200 && status < 400 }));
   const html = await loginIfNeeded(client, process.env.PHPLITEADMIN_URL || DEFAULT_PHPLITEADMIN_URL);
-  const metrics = latestMetrics(html);
+  const metrics = latestMetrics(html, source);
   const row = await updateSheet(metrics, hour, date);
   console.log(`${date.label} ${hour}:00 -> row ${row}; receivemails=${metrics.receivemails}, mkt_receivemails=${metrics.mktReceivemails}; source=${metrics.datetime}`);
 }
