@@ -8,13 +8,13 @@ const DEFAULT_PHPLITEADMIN_URL = 'https://smlovely.chatlove.xyz/dc/admin/phplite
 const SHEET_NAME = '目標＆振分 のコピー';
 
 const SCHEDULE_HOURS = new Map([
-  ['7 1 * * *', 9],
-  ['7 4 * * *', 12],
-  ['7 7 * * *', 15],
-  ['7 10 * * *', 18],
-  ['7 13 * * *', 21],
-  ['7 16 * * *', 24],
-  ['7 19 * * *', 27],
+  ['7 0 * * *', 9],
+  ['7 3 * * *', 12],
+  ['7 6 * * *', 15],
+  ['7 9 * * *', 18],
+  ['7 12 * * *', 21],
+  ['7 15 * * *', 24],
+  ['7 18 * * *', 27],
 ]);
 
 function required(name) {
@@ -99,12 +99,13 @@ async function loginIfNeeded(client, url) {
 
 function sourceTimestamp(date, hour) {
   const source = new Date(Date.UTC(date.year, date.month - 1, date.day));
-  if (hour >= 24) source.setUTCDate(source.getUTCDate() + 1);
+  const sourceHour = hour - 1;
+  if (sourceHour >= 24) source.setUTCDate(source.getUTCDate() + 1);
   return {
     year: source.getUTCFullYear(),
     month: source.getUTCMonth() + 1,
     day: source.getUTCDate(),
-    hour: hour % 24,
+    hour: sourceHour % 24,
   };
 }
 

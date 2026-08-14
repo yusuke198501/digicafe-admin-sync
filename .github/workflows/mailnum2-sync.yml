@@ -9,7 +9,7 @@ on:
         type: choice
         options: ['9', '12', '15', '18', '21', '24', '27']
   schedule:
-    - cron: '7 1,4,7,10,13,16,19 * * *'
+    - cron: '7 0,3,6,9,12,15,18 * * *'
 
 permissions:
   contents: read
