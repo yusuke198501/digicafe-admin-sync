@@ -94,21 +94,25 @@ async function loginIfNeeded(client, url) {
 
 function latestMetrics(html) {
   const $ = cheerio.load(html);
+  const inspectedHeaders = [];
   for (const table of $('table').toArray()) {
     const rows = $(table).find('tr').toArray();
-    const headerIndex = rows.findIndex((row) => $(row).children('th,td').toArray()
+    const rowCells = (row) => $(row).children('th,td').toArray();
+    const headerIndex = rows.findIndex((row) => rowCells(row)
       .map((cell) => text($(cell).text()))
       .includes('receivemails'));
+    const firstHeader = rows.find((row) => rowCells(row).length >= 3);
+    if (firstHeader) inspectedHeaders.push(rowCells(firstHeader).map((cell) => text($(cell).text())).slice(0, 20));
     if (headerIndex < 0) continue;
 
-    const headers = $(rows[headerIndex]).children('th,td').toArray().map((cell) => text($(cell).text()));
+    const headers = rowCells(rows[headerIndex]).map((cell) => text($(cell).text()));
     const datetimeIndex = headers.indexOf('datetime');
     const receiveIndex = headers.indexOf('receivemails');
     const mktReceiveIndex = headers.indexOf('mkt_receivemails');
     if ([datetimeIndex, receiveIndex, mktReceiveIndex].some((index) => index < 0)) continue;
 
     const values = rows.slice(headerIndex + 1)
-      .map((row) => $(row).children('th,td').toArray().map((cell) => $(cell).text().trim()))
+      .map((row) => rowCells(row).map((cell) => $(cell).text().trim()))
       .filter((cells) => /^\d{4}-\d{2}-\d{2}/.test(cells[datetimeIndex] ?? ''))
       .map((cells) => ({
         datetime: cells[datetimeIndex].replace(/\s+/g, ' '),
@@ -122,7 +126,10 @@ function latestMetrics(html) {
       return values[0];
     }
   }
-  throw new Error('mailnum2 table or the required columns were not found.');
+  const title = $('title').first().text().trim().replace(/\s+/g, ' ');
+  const loginFields = $('input[name]').toArray().map((input) => $(input).attr('name')).filter(Boolean);
+  const headerSummary = inspectedHeaders.slice(0, 4).map((headers) => headers.join(',')).join(' | ');
+  throw new Error(`mailnum2 table or the required columns were not found. title=${title || '(none)'}; forms=${loginFields.join(',') || '(none)'}; tableHeaders=${headerSummary || '(none)'}`);
 }
 
 function locateTargetRow(values, date, hour) {
