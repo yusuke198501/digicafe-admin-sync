@@ -140,7 +140,8 @@ function latestMetrics(html, source) {
     const datetimeIndex = headers.indexOf('datetime');
     const receiveIndex = headers.indexOf('receivemails');
     const mktReceiveIndex = headers.indexOf('mkt_receivemails');
-    if ([datetimeIndex, receiveIndex, mktReceiveIndex].some((index) => index < 0)) continue;
+    const grossDauIndex = headers.indexOf('gross_dau');
+    if ([datetimeIndex, receiveIndex, mktReceiveIndex, grossDauIndex].some((index) => index < 0)) continue;
 
     const values = rows.slice(headerIndex + 1)
       .map((row) => rowCells(row).map((cell) => $(cell).text().trim()))
@@ -149,8 +150,11 @@ function latestMetrics(html, source) {
         datetime: cells[datetimeIndex].replace(/\s+/g, ' '),
         receivemails: Number(cells[receiveIndex]),
         mktReceivemails: Number(cells[mktReceiveIndex]),
+        grossDau: Number(cells[grossDauIndex]),
       }))
-      .filter((row) => Number.isFinite(row.receivemails) && Number.isFinite(row.mktReceivemails));
+      .filter((row) => Number.isFinite(row.receivemails)
+        && Number.isFinite(row.mktReceivemails)
+        && Number.isFinite(row.grossDau));
 
     if (values.length) {
       const matchingRows = values.filter((row) => matchesSourceHour(row.datetime, source));
@@ -202,6 +206,7 @@ async function updateSheet(metrics, hour, date) {
       data: [
         { range: `'${SHEET_NAME}'!C${row}`, values: [[metrics.receivemails]] },
         { range: `'${SHEET_NAME}'!E${row}`, values: [[metrics.mktReceivemails]] },
+        { range: `'${SHEET_NAME}'!I${row}`, values: [[metrics.grossDau]] },
       ],
     },
   });
@@ -216,7 +221,7 @@ async function main() {
   const html = await loginIfNeeded(client, process.env.PHPLITEADMIN_URL || DEFAULT_PHPLITEADMIN_URL);
   const metrics = latestMetrics(html, source);
   const row = await updateSheet(metrics, hour, date);
-  console.log(`${date.label} ${hour}:00 -> row ${row}; receivemails=${metrics.receivemails}, mkt_receivemails=${metrics.mktReceivemails}; source=${metrics.datetime}`);
+  console.log(`${date.label} ${hour}:00 -> row ${row}; receivemails=${metrics.receivemails}, mkt_receivemails=${metrics.mktReceivemails}, gross_dau=${metrics.grossDau}; source=${metrics.datetime}`);
 }
 
 main().catch((error) => {
