@@ -2,9 +2,8 @@ name: 管理画面データ更新
 
 on:
   workflow_dispatch:
-  # 手動テスト成功後にコメントを外してください。
-  # schedule:
-  #   - cron: '10 16 * * *' # 日本時間 1:10
+  schedule:
+    - cron: '0 17 * * *' # 日本時間 毎日 2:00
 
 jobs:
   sync:
