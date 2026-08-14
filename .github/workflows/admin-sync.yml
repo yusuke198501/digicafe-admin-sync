@@ -1,0 +1,28 @@
+name: 管理画面データ更新
+
+on:
+  workflow_dispatch:
+  # 手動テスト成功後にコメントを外してください。
+  # schedule:
+  #   - cron: '10 16 * * *' # 日本時間 1:10
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: npm install
+
+      - run: npm run sync-admin
+        env:
+          ADMIN_DIGICAFE_USERNAME: ${{ secrets.ADMIN_DIGICAFE_USERNAME }}
+          ADMIN_DIGICAFE_PASSWORD: ${{ secrets.ADMIN_DIGICAFE_PASSWORD }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
