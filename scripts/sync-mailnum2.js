@@ -6,6 +6,11 @@ import { google } from 'googleapis';
 
 const DEFAULT_PHPLITEADMIN_URL = 'https://smlovely.chatlove.xyz/dc/admin/phpliteadmin.php?database=..%2Fdb.db&table=mailnum2&fulltexts=0&numRows=30&action=row_view&sort=datetime&order=DESC';
 const SHEET_NAME = '目標＆振分 のコピー';
+const REQUEST_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140.0.0.0 Safari/537.36',
+  Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  'Accept-Language': 'ja-JP,ja;q=0.9',
+};
 
 const SCHEDULE_HOURS = new Map([
   ['7 0 * * *', 9],
@@ -66,8 +71,34 @@ function reportDate(hour) {
   };
 }
 
+const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+function isRetryableFetchError(error) {
+  if (!axios.isAxiosError(error)) return false;
+  if (!error.response) return true;
+  return error.response.status === 403
+    || error.response.status === 429
+    || error.response.status >= 500;
+}
+
+async function fetchWithRetry(label, request) {
+  const retries = 3;
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      return await request();
+    } catch (error) {
+      if (!isRetryableFetchError(error) || attempt === retries) throw error;
+      const status = error.response?.status ?? 'network error';
+      const delay = (attempt + 1) * 5000;
+      console.warn(`${label} failed (${status}). Retrying in ${delay / 1000} seconds (${attempt + 1}/${retries}).`);
+      await wait(delay);
+    }
+  }
+  throw new Error(`${label} could not be completed.`);
+}
+
 async function loginIfNeeded(client, url) {
-  const response = await client.get(url, { headers: { 'User-Agent': 'mailnum2-sheet-sync/1.0' } });
+  const response = await fetchWithRetry('phpLiteAdmin page fetch', () => client.get(url, { headers: REQUEST_HEADERS }));
   const $ = cheerio.load(response.data);
   const passwordInput = $('input[type="password"]').first();
   if (!passwordInput.length) return response.data;
@@ -87,10 +118,10 @@ async function loginIfNeeded(client, url) {
 
   const action = new URL(form.attr('action') || url, url).toString();
   await client.post(action, payload, {
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'mailnum2-sheet-sync/1.0' },
+    headers: { ...REQUEST_HEADERS, 'Content-Type': 'application/x-www-form-urlencoded' },
   });
 
-  const authenticated = await client.get(url, { headers: { 'User-Agent': 'mailnum2-sheet-sync/1.0' } });
+  const authenticated = await fetchWithRetry('phpLiteAdmin authenticated page fetch', () => client.get(url, { headers: REQUEST_HEADERS }));
   if (cheerio.load(authenticated.data)('input[type="password"]').length) {
     throw new Error('phpLiteAdmin login failed. Check PHPLITEADMIN_PASSWORD.');
   }
@@ -142,7 +173,19 @@ function latestMetrics(html, source) {
     const mktReceiveIndex = headers.indexOf('mkt_receivemails');
     const grossDauIndex = headers.indexOf('gross_dau');
     const boxAReceiveIndex = headers.indexOf('box_a_receivemails');
-    if ([datetimeIndex, receiveIndex, mktReceiveIndex, grossDauIndex, boxAReceiveIndex].some((index) => index < 0)) continue;
+    const boxBReceiveIndex = headers.indexOf('box_b_receivemails');
+    const boxCReceiveIndex = headers.indexOf('box_c_receivemails');
+    const boxEReceiveIndex = headers.indexOf('box_e_receivemails');
+    const boxIReceiveIndex = headers.indexOf('box_i_receivemails');
+    const boxJReceiveIndex = headers.indexOf('box_j_receivemails');
+    const boxMReceiveIndex = headers.indexOf('box_m_receivemails');
+    const boxQReceiveIndex = headers.indexOf('box_q_receivemails');
+    const requiredIndices = [
+      datetimeIndex, receiveIndex, mktReceiveIndex, grossDauIndex,
+      boxAReceiveIndex, boxBReceiveIndex, boxCReceiveIndex, boxEReceiveIndex,
+      boxIReceiveIndex, boxJReceiveIndex, boxMReceiveIndex, boxQReceiveIndex,
+    ];
+    if (requiredIndices.some((index) => index < 0)) continue;
 
     const values = rows.slice(headerIndex + 1)
       .map((row) => rowCells(row).map((cell) => $(cell).text().trim()))
@@ -153,11 +196,25 @@ function latestMetrics(html, source) {
         mktReceivemails: Number(cells[mktReceiveIndex]),
         grossDau: Number(cells[grossDauIndex]),
         boxAReceivemails: Number(cells[boxAReceiveIndex]),
+        boxBReceivemails: Number(cells[boxBReceiveIndex]),
+        boxCReceivemails: Number(cells[boxCReceiveIndex]),
+        boxEReceivemails: Number(cells[boxEReceiveIndex]),
+        boxIReceivemails: Number(cells[boxIReceiveIndex]),
+        boxJReceivemails: Number(cells[boxJReceiveIndex]),
+        boxMReceivemails: Number(cells[boxMReceiveIndex]),
+        boxQReceivemails: Number(cells[boxQReceiveIndex]),
       }))
       .filter((row) => Number.isFinite(row.receivemails)
         && Number.isFinite(row.mktReceivemails)
         && Number.isFinite(row.grossDau)
-        && Number.isFinite(row.boxAReceivemails));
+        && Number.isFinite(row.boxAReceivemails)
+        && Number.isFinite(row.boxBReceivemails)
+        && Number.isFinite(row.boxCReceivemails)
+        && Number.isFinite(row.boxEReceivemails)
+        && Number.isFinite(row.boxIReceivemails)
+        && Number.isFinite(row.boxJReceivemails)
+        && Number.isFinite(row.boxMReceivemails)
+        && Number.isFinite(row.boxQReceivemails));
 
     if (values.length) {
       const matchingRows = values.filter((row) => matchesSourceHour(row.datetime, source));
@@ -229,6 +286,13 @@ async function updateSheet(metrics, hour, date) {
         { range: `'${SHEET_NAME}'!E${row}`, values: [[metrics.mktReceivemails]] },
         { range: `'${SHEET_NAME}'!I${row}`, values: [[metrics.grossDau]] },
         { range: `'${SHEET_NAME}'!C${boxRow}`, values: [[metrics.boxAReceivemails]] },
+        { range: `'${SHEET_NAME}'!E${boxRow}`, values: [[metrics.boxBReceivemails]] },
+        { range: `'${SHEET_NAME}'!G${boxRow}`, values: [[metrics.boxCReceivemails]] },
+        { range: `'${SHEET_NAME}'!I${boxRow}`, values: [[metrics.boxEReceivemails]] },
+        { range: `'${SHEET_NAME}'!K${boxRow}`, values: [[metrics.boxIReceivemails]] },
+        { range: `'${SHEET_NAME}'!M${boxRow}`, values: [[metrics.boxJReceivemails]] },
+        { range: `'${SHEET_NAME}'!O${boxRow}`, values: [[metrics.boxMReceivemails]] },
+        { range: `'${SHEET_NAME}'!Q${boxRow}`, values: [[metrics.boxQReceivemails]] },
       ],
     },
   });
@@ -243,10 +307,15 @@ async function main() {
   const html = await loginIfNeeded(client, process.env.PHPLITEADMIN_URL || DEFAULT_PHPLITEADMIN_URL);
   const metrics = latestMetrics(html, source);
   const { row, boxRow } = await updateSheet(metrics, hour, date);
-  console.log(`${date.label} ${hour}:00 -> row ${row}, box row ${boxRow}; receivemails=${metrics.receivemails}, mkt_receivemails=${metrics.mktReceivemails}, gross_dau=${metrics.grossDau}, box_a_receivemails=${metrics.boxAReceivemails}; source=${metrics.datetime}`);
+  console.log(`${date.label} ${hour}:00 -> row ${row}, box row ${boxRow}; receivemails=${metrics.receivemails}, mkt_receivemails=${metrics.mktReceivemails}, gross_dau=${metrics.grossDau}; source=${metrics.datetime}`);
 }
 
 main().catch((error) => {
+  if (axios.isAxiosError(error) && error.response) {
+    const title = cheerio.load(String(error.response.data ?? ''))('title').first().text().trim().replace(/\s+/g, ' ');
+    console.error(`phpLiteAdmin request failed: HTTP ${error.response.status}; title=${title || '(none)'}`);
+    process.exit(1);
+  }
   console.error(error.message);
   process.exit(1);
 });
