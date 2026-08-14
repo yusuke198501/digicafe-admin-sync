@@ -109,7 +109,12 @@ function latestMetrics(html) {
     if (firstHeader) inspectedHeaders.push(rowCells(firstHeader).map((cell) => text($(cell).text())).slice(0, 20));
     if (headerIndex < 0) continue;
 
-    const headers = rowCells(rows[headerIndex]).map((cell) => headerName($(cell).text()));
+    // phpLiteAdmin groups the checkbox and action columns under a colspan=2 header.
+    // Expand it so header positions match the cells in the data rows.
+    const headers = rowCells(rows[headerIndex]).flatMap((cell) => {
+      const colspan = Number($(cell).attr('colspan') ?? 1);
+      return Array.from({ length: Number.isFinite(colspan) && colspan > 0 ? colspan : 1 }, () => headerName($(cell).text()));
+    });
     const datetimeIndex = headers.indexOf('datetime');
     const receiveIndex = headers.indexOf('receivemails');
     const mktReceiveIndex = headers.indexOf('mkt_receivemails');
