@@ -186,6 +186,49 @@ async function updateSheet(target, values) {
       values: [values],
     },
   });
+
+  await copyFormulasFromPreviousRow(sheets, rowIndex);
+}
+
+async function copyFormulasFromPreviousRow(sheets, targetRowIndex) {
+  if (targetRowIndex === 0) {
+    throw new Error('先頭行には直上行がないため、L〜S列の数式をコピーできません。');
+  }
+
+  const spreadsheet = await sheets.spreadsheets.get({
+    spreadsheetId: SPREADSHEET_ID,
+    fields: 'sheets.properties(sheetId,title)',
+  });
+  const sheet = spreadsheet.data.sheets
+    .find((item) => item.properties.title === SHEET_NAME);
+
+  if (!sheet) throw new Error(`${SHEET_NAME}のシートIDを取得できません。`);
+
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId: SPREADSHEET_ID,
+    requestBody: {
+      requests: [{
+        copyPaste: {
+          source: {
+            sheetId: sheet.properties.sheetId,
+            startRowIndex: targetRowIndex - 1,
+            endRowIndex: targetRowIndex,
+            startColumnIndex: 11, // L列
+            endColumnIndex: 19, // S列の次
+          },
+          destination: {
+            sheetId: sheet.properties.sheetId,
+            startRowIndex: targetRowIndex,
+            endRowIndex: targetRowIndex + 1,
+            startColumnIndex: 11,
+            endColumnIndex: 19,
+          },
+          pasteType: 'PASTE_FORMULA',
+          pasteOrientation: 'NORMAL',
+        },
+      }],
+    },
+  });
 }
 
 async function main() {
