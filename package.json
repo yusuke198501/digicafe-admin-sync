@@ -1,0 +1,13 @@
+{
+  "type": "module",
+  "scripts": {
+    "sync-admin": "node scripts/sync-admin.js"
+  },
+  "dependencies": {
+    "axios": "^1.8.0",
+    "axios-cookiejar-support": "^6.0.0",
+    "cheerio": "^1.0.0",
+    "googleapis": "^144.0.0",
+    "tough-cookie": "^5.1.0"
+  }
+}
