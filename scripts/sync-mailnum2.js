@@ -27,6 +27,10 @@ function text(cell) {
   return String(cell ?? '').replace(/\s/g, '').trim();
 }
 
+function headerName(cell) {
+  return text(cell).replace(/[↑↓]/g, '');
+}
+
 function jstDateParts() {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: 'Asia/Tokyo',
@@ -105,7 +109,7 @@ function latestMetrics(html) {
     if (firstHeader) inspectedHeaders.push(rowCells(firstHeader).map((cell) => text($(cell).text())).slice(0, 20));
     if (headerIndex < 0) continue;
 
-    const headers = rowCells(rows[headerIndex]).map((cell) => text($(cell).text()));
+    const headers = rowCells(rows[headerIndex]).map((cell) => headerName($(cell).text()));
     const datetimeIndex = headers.indexOf('datetime');
     const receiveIndex = headers.indexOf('receivemails');
     const mktReceiveIndex = headers.indexOf('mkt_receivemails');
