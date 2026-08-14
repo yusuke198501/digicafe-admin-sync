@@ -7,7 +7,8 @@ import { google } from 'googleapis';
 const BASE_URL = 'https://admin.digicafe.jp/dadmin.php/';
 const LOGIN_URL = 'https://admin.digicafe.jp/dadmin.php/login';
 const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
-const SHEET_NAME = '男性日データ';
+const MALE_SHEET_NAME = '男性日データ';
+const FEMALE_SHEET_NAME = '女性日データ';
 
 const labels = [
   '男性売上',
@@ -153,7 +154,45 @@ async function fetchMetrics(client, target) {
   throw new Error(`${target.text} の男性日データが見つかりません。`);
 }
 
-async function updateSheet(target, values) {
+async function fetchFemaleMetrics(client, target) {
+  const ids = [16, 231, 78, 238, 79, 239, 172, 285, 286, 287];
+  const query = new URLSearchParams({
+    year: String(target.year),
+    month: String(target.month),
+    filter: '検索',
+  });
+  ids.forEach((id) => query.append('associated_items[]', String(id)));
+
+  const url = `https://admin.digicafe.jp/dadmin.php/ak_stats_item/analytics_month?${query}`;
+  const response = await client.get(url, { headers });
+  if (response.status !== 200) {
+    throw new Error(`女性日データ用の分析表取得に失敗しました: HTTP ${response.status}`);
+  }
+
+  return parseDailyValuesInSelectedOrder(response.data, target, ids.length, '女性日データ');
+}
+
+/**
+ * associated_items の指定順で表示される日別表から、対象日の値を取り出す。
+ * 女性日データは「全体」「UF除」のペアを含む10項目を、B〜K列へ同じ順で書き込む。
+ */
+function parseDailyValuesInSelectedOrder(html, target, itemCount, dataName) {
+  const $ = cheerio.load(html);
+
+  for (const table of $('table').toArray()) {
+    for (const row of $(table).find('tr').toArray()) {
+      const cells = $(row).children('th,td').toArray()
+        .map((cell) => $(cell).text().trim());
+
+      if (cells.length < itemCount + 1 || dateKey(cells[0]) !== target.text) continue;
+      return cells.slice(1, itemCount + 1).map((value) => toNumber(value));
+    }
+  }
+
+  throw new Error(`${target.text} の${dataName}が見つかりません。`);
+}
+
+async function updateSheet(target, values, sheetName, endColumn) {
   const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
 
   const auth = new google.auth.GoogleAuth({
@@ -168,31 +207,31 @@ async function updateSheet(target, values) {
 
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: SPREADSHEET_ID,
-    range: `'${SHEET_NAME}'!A:A`,
+    range: `'${sheetName}'!A:A`,
   });
 
   const rowIndex = (response.data.values ?? [])
     .findIndex(([value]) => dateKey(value) === target.text);
 
   if (rowIndex < 0) {
-    throw new Error(`${SHEET_NAME}のA列に ${target.text} がありません。`);
+    throw new Error(`${sheetName}のA列に ${target.text} がありません。`);
   }
 
   await sheets.spreadsheets.values.update({
     spreadsheetId: SPREADSHEET_ID,
-    range: `'${SHEET_NAME}'!B${rowIndex + 1}:J${rowIndex + 1}`,
+    range: `'${sheetName}'!B${rowIndex + 1}:${endColumn}${rowIndex + 1}`,
     valueInputOption: 'RAW',
     requestBody: {
       values: [values],
     },
   });
 
-  await copyFormulasFromPreviousRow(sheets, rowIndex);
+  await copyFormulasFromPreviousRow(sheets, sheetName, rowIndex);
 }
 
-async function copyFormulasFromPreviousRow(sheets, targetRowIndex) {
+async function copyFormulasFromPreviousRow(sheets, sheetName, targetRowIndex) {
   if (targetRowIndex === 0) {
-    throw new Error('先頭行には直上行がないため、L〜S列の数式をコピーできません。');
+    throw new Error('先頭行には直上行がないため、M〜S列の数式をコピーできません。');
   }
 
   const spreadsheet = await sheets.spreadsheets.get({
@@ -200,9 +239,9 @@ async function copyFormulasFromPreviousRow(sheets, targetRowIndex) {
     fields: 'sheets.properties(sheetId,title)',
   });
   const sheet = spreadsheet.data.sheets
-    .find((item) => item.properties.title === SHEET_NAME);
+    .find((item) => item.properties.title === sheetName);
 
-  if (!sheet) throw new Error(`${SHEET_NAME}のシートIDを取得できません。`);
+  if (!sheet) throw new Error(`${sheetName}のシートIDを取得できません。`);
 
   await sheets.spreadsheets.batchUpdate({
     spreadsheetId: SPREADSHEET_ID,
@@ -213,14 +252,14 @@ async function copyFormulasFromPreviousRow(sheets, targetRowIndex) {
             sheetId: sheet.properties.sheetId,
             startRowIndex: targetRowIndex - 1,
             endRowIndex: targetRowIndex,
-            startColumnIndex: 11, // L列
+            startColumnIndex: 12, // M列
             endColumnIndex: 19, // S列の次
           },
           destination: {
             sheetId: sheet.properties.sheetId,
             startRowIndex: targetRowIndex,
             endRowIndex: targetRowIndex + 1,
-            startColumnIndex: 11,
+            startColumnIndex: 12,
             endColumnIndex: 19,
           },
           pasteType: 'PASTE_FORMULA',
@@ -241,10 +280,13 @@ async function main() {
 
   await login(client);
 
-  const values = await fetchMetrics(client, target);
-  await updateSheet(target, values);
+  const maleValues = await fetchMetrics(client, target);
+  await updateSheet(target, maleValues, MALE_SHEET_NAME, 'J');
 
-  console.log(`${target.text} の男性日データを更新しました。`);
+  const femaleValues = await fetchFemaleMetrics(client, target);
+  await updateSheet(target, femaleValues, FEMALE_SHEET_NAME, 'K');
+
+  console.log(`${target.text} の男性日データ・女性日データを更新しました。`);
 }
 
 main().catch((error) => {
