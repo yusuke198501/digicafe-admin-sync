@@ -145,10 +145,14 @@ function locateTargetRow(values, date, hour) {
   const titleIndex = values.findIndex(([columnA, columnB]) => text(columnA).startsWith(date.label) && text(columnB) === 'DC');
   if (titleIndex < 0) throw new Error(`${date.label} DC block was not found in ${SHEET_NAME}.`);
 
-  const timeHeaderIndex = values.findIndex(([columnA], index) => index > titleIndex && index < titleIndex + 35 && text(columnA) === '時間/合');
+  const timeHeaderIndex = values.findIndex((columns, index) => index > titleIndex
+    && index < titleIndex + 35
+    && columns.some((column) => text(column).startsWith('時間/')));
   if (timeHeaderIndex < 0) throw new Error(`The time table was not found below the ${date.label} DC block.`);
 
-  const rowIndex = values.findIndex(([columnA], index) => index > timeHeaderIndex && index < timeHeaderIndex + 10 && text(columnA) === String(hour));
+  const rowIndex = values.findIndex((columns, index) => index > timeHeaderIndex
+    && index < timeHeaderIndex + 10
+    && columns.some((column) => text(column) === String(hour)));
   if (rowIndex < 0) throw new Error(`${hour} o'clock row was not found in the ${date.label} DC block.`);
   return rowIndex + 1;
 }
@@ -160,7 +164,7 @@ async function updateSheet(metrics, hour, date) {
   });
   const sheets = google.sheets({ version: 'v4', auth });
   const spreadsheetId = required('SPREADSHEET_ID');
-  const range = `'${SHEET_NAME}'!A:B`;
+  const range = `'${SHEET_NAME}'!A:C`;
   const source = await sheets.spreadsheets.values.get({ spreadsheetId, range });
   const row = locateTargetRow(source.data.values ?? [], date, hour);
 
