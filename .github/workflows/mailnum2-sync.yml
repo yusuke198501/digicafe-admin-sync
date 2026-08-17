@@ -9,7 +9,15 @@ on:
         type: choice
         options: ['9', '12', '15', '18', '21', '24', '27']
   schedule:
-    - cron: '7 0,3,6,9,12,15,18 * * *'
+    # 日本時間 9, 12, 15, 18, 21, 24, 27時の7分後
+    # 時刻ごとに分けることで github.event.schedule から確実に判定する。
+    - cron: '7 0 * * *'
+    - cron: '7 3 * * *'
+    - cron: '7 6 * * *'
+    - cron: '7 9 * * *'
+    - cron: '7 12 * * *'
+    - cron: '7 15 * * *'
+    - cron: '7 18 * * *'
 
 permissions:
   contents: read
@@ -29,8 +37,9 @@ jobs:
 
       - run: npm run sync-mailnum2
         env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
           GITHUB_EVENT_SCHEDULE: ${{ github.event.schedule }}
-          REPORT_HOUR: ${{ inputs.report_hour }}
+          REPORT_HOUR: ${{ inputs.report_hour || github.event.inputs.report_hour }}
           PHPLITEADMIN_PASSWORD: ${{ secrets.PHPLITEADMIN_PASSWORD }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           SPREADSHEET_ID: ${{ secrets.MAILNUM2_SPREADSHEET_ID }}
