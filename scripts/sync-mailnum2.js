@@ -5,7 +5,7 @@ import * as cheerio from 'cheerio';
 import { google } from 'googleapis';
 
 const DEFAULT_PHPLITEADMIN_URL = 'https://smlovely.chatlove.xyz/dc/admin/phpliteadmin.php?database=..%2Fdb.db&table=mailnum2&fulltexts=0&numRows=30&action=row_view&sort=datetime&order=DESC';
-const SHEET_NAME = '目標＆振分 のコピー';
+const SHEET_NAMES = ['目標＆振分 のコピー', '目標＆振分'];
 const REQUEST_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140.0.0.0 Safari/537.36',
   Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -259,9 +259,9 @@ function latestMetrics(html, source) {
   throw new Error(`mailnum2 table or the required columns were not found. title=${title || '(none)'}; forms=${loginFields.join(',') || '(none)'}; tableHeaders=${headerSummary || '(none)'}`);
 }
 
-function locateTargetRow(values, date, hour) {
+function locateTargetRow(values, date, hour, sheetName) {
   const titleIndex = values.findIndex(([columnA, columnB]) => text(columnA).startsWith(date.label) && text(columnB) === 'DC');
-  if (titleIndex < 0) throw new Error(`${date.label} DC block was not found in ${SHEET_NAME}.`);
+  if (titleIndex < 0) throw new Error(`${date.label} DC block was not found in ${sheetName}.`);
 
   const timeHeaderIndex = values.findIndex((columns, index) => index > titleIndex
     && index < titleIndex + 35
@@ -275,9 +275,9 @@ function locateTargetRow(values, date, hour) {
   return rowIndex + 1;
 }
 
-function locateBoxTargetRow(values, date, hour) {
+function locateBoxTargetRow(values, date, hour, sheetName) {
   const titleIndex = values.findIndex(([columnA, columnB]) => text(columnA).startsWith(date.label) && text(columnB) === 'DC');
-  if (titleIndex < 0) throw new Error(`${date.label} DC block was not found in ${SHEET_NAME}.`);
+  if (titleIndex < 0) throw new Error(`${date.label} DC block was not found in ${sheetName}.`);
 
   const boxHeaderIndex = values.findIndex((columns, index) => index > titleIndex
     && index < titleIndex + 50
@@ -298,32 +298,36 @@ async function updateSheet(metrics, hour, date) {
   });
   const sheets = google.sheets({ version: 'v4', auth });
   const spreadsheetId = required('SPREADSHEET_ID');
-  const range = `'${SHEET_NAME}'!A:C`;
-  const source = await sheets.spreadsheets.values.get({ spreadsheetId, range });
-  const values = source.data.values ?? [];
-  const row = locateTargetRow(values, date, hour);
-  const boxRow = locateBoxTargetRow(values, date, hour);
+  const results = [];
+  for (const sheetName of SHEET_NAMES) {
+    const range = `'${sheetName}'!A:C`;
+    const source = await sheets.spreadsheets.values.get({ spreadsheetId, range });
+    const values = source.data.values ?? [];
+    const row = locateTargetRow(values, date, hour, sheetName);
+    const boxRow = locateBoxTargetRow(values, date, hour, sheetName);
 
-  await sheets.spreadsheets.values.batchUpdate({
-    spreadsheetId,
-    requestBody: {
-      valueInputOption: 'RAW',
-      data: [
-        { range: `'${SHEET_NAME}'!C${row}`, values: [[metrics.receivemails]] },
-        { range: `'${SHEET_NAME}'!E${row}`, values: [[metrics.mktReceivemails]] },
-        { range: `'${SHEET_NAME}'!I${row}`, values: [[metrics.grossDau]] },
-        { range: `'${SHEET_NAME}'!C${boxRow}`, values: [[metrics.boxAReceivemails]] },
-        { range: `'${SHEET_NAME}'!E${boxRow}`, values: [[metrics.boxBReceivemails]] },
-        { range: `'${SHEET_NAME}'!G${boxRow}`, values: [[metrics.boxCReceivemails]] },
-        { range: `'${SHEET_NAME}'!I${boxRow}`, values: [[metrics.boxEReceivemails]] },
-        { range: `'${SHEET_NAME}'!K${boxRow}`, values: [[metrics.boxIReceivemails]] },
-        { range: `'${SHEET_NAME}'!M${boxRow}`, values: [[metrics.boxJReceivemails]] },
-        { range: `'${SHEET_NAME}'!O${boxRow}`, values: [[metrics.boxMReceivemails]] },
-        { range: `'${SHEET_NAME}'!Q${boxRow}`, values: [[metrics.boxQReceivemails]] },
-      ],
-    },
-  });
-  return { row, boxRow };
+    await sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId,
+      requestBody: {
+        valueInputOption: 'RAW',
+        data: [
+          { range: `'${sheetName}'!C${row}`, values: [[metrics.receivemails]] },
+          { range: `'${sheetName}'!E${row}`, values: [[metrics.mktReceivemails]] },
+          { range: `'${sheetName}'!I${row}`, values: [[metrics.grossDau]] },
+          { range: `'${sheetName}'!C${boxRow}`, values: [[metrics.boxAReceivemails]] },
+          { range: `'${sheetName}'!E${boxRow}`, values: [[metrics.boxBReceivemails]] },
+          { range: `'${sheetName}'!G${boxRow}`, values: [[metrics.boxCReceivemails]] },
+          { range: `'${sheetName}'!I${boxRow}`, values: [[metrics.boxEReceivemails]] },
+          { range: `'${sheetName}'!K${boxRow}`, values: [[metrics.boxIReceivemails]] },
+          { range: `'${sheetName}'!M${boxRow}`, values: [[metrics.boxJReceivemails]] },
+          { range: `'${sheetName}'!O${boxRow}`, values: [[metrics.boxMReceivemails]] },
+          { range: `'${sheetName}'!Q${boxRow}`, values: [[metrics.boxQReceivemails]] },
+        ],
+      },
+    });
+    results.push({ sheetName, row, boxRow });
+  }
+  return results;
 }
 
 async function main() {
@@ -333,8 +337,9 @@ async function main() {
   const client = wrapper(axios.create({ jar: new CookieJar(), validateStatus: (status) => status >= 200 && status < 400 }));
   const html = await loginIfNeeded(client, process.env.PHPLITEADMIN_URL || DEFAULT_PHPLITEADMIN_URL);
   const metrics = latestMetrics(html, source);
-  const { row, boxRow } = await updateSheet(metrics, hour, date);
-  console.log(`${date.label} ${hour}:00 -> row ${row}, box row ${boxRow}; receivemails=${metrics.receivemails}, mkt_receivemails=${metrics.mktReceivemails}, gross_dau=${metrics.grossDau}; source=${metrics.datetime}`);
+  const updatedSheets = await updateSheet(metrics, hour, date);
+  const destination = updatedSheets.map(({ sheetName, row, boxRow }) => `${sheetName}: row ${row}, box row ${boxRow}`).join('; ');
+  console.log(`${date.label} ${hour}:00 -> ${destination}; receivemails=${metrics.receivemails}, mkt_receivemails=${metrics.mktReceivemails}, gross_dau=${metrics.grossDau}; source=${metrics.datetime}`);
 }
 
 main().catch((error) => {
