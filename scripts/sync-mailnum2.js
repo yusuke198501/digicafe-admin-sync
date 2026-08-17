@@ -47,11 +47,33 @@ function reportHour() {
   // Scheduled runs repeat hourly. Each run refreshes the most recently
   // completed reporting slot, catching up after a delayed schedule.
   if (process.env.GITHUB_EVENT_NAME === 'schedule' || process.env.GITHUB_EVENT_SCHEDULE) {
-    const currentHour = Number(new Intl.DateTimeFormat('en-US', {
+    const parts = new Intl.DateTimeFormat('en-US', {
       timeZone: 'Asia/Tokyo',
-      hour: 'numeric',
       hourCycle: 'h23',
-    }).format(new Date()));
+      hour: '2-digit',
+      minute: '2-digit',
+    }).formatToParts(new Date());
+    const get = (type) => Number(parts.find((part) => part.type === type).value);
+    const currentHour = get('hour');
+    const currentMinute = get('minute');
+
+    // mailnum2 records the next reporting slot around :56.  For example,
+    // the 17:56 record belongs in the 18:00 row, even if Actions starts
+    // before 18:00 (such as 17:58).
+    if (currentMinute >= 56) {
+      const slotForFreshSourceHour = new Map([
+        [2, 27],
+        [8, 9],
+        [11, 12],
+        [14, 15],
+        [17, 18],
+        [20, 21],
+        [23, 24],
+      ]);
+      const freshSlot = slotForFreshSourceHour.get(currentHour);
+      if (freshSlot) return freshSlot;
+    }
+
     if (currentHour < 3) return 24;
     if (currentHour < 9) return 27;
     if (currentHour < 12) return 9;
