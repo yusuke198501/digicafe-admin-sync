@@ -1,26 +1,23 @@
-name: mailnum2 を目標＆振分へ反映
+name: mailnum2 sync
 
 on:
   workflow_dispatch:
     inputs:
       report_hour:
-        description: 書き込む論理時刻
+        description: Target reporting hour
         required: true
         type: choice
         options: ['9', '12', '15', '18', '21', '24', '27']
   schedule:
-    # 日本時間 0, 3, 6, 9, 12, 15, 18, 21時の50分
-    # 時刻ごとに分けることで github.event.schedule から確実に判定する。
-    - cron: '50 0 * * *'
-    - cron: '50 3 * * *'
-    - cron: '50 6 * * *'
-    - cron: '50 9 * * *'
-    - cron: '50 12 * * *'
-    - cron: '50 15 * * *'
-    - cron: '50 18 * * *'
+    # Each hourly run refreshes the most recently completed JST reporting slot.
+    - cron: '15 * * * *'
 
 permissions:
   contents: read
+
+concurrency:
+  group: mailnum2-sync
+  cancel-in-progress: false
 
 jobs:
   sync:

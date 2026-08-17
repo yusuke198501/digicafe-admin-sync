@@ -12,16 +12,6 @@ const REQUEST_HEADERS = {
   'Accept-Language': 'ja-JP,ja;q=0.9',
 };
 
-const SCHEDULE_HOURS = new Map([
-  ['50 0 * * *', 9],
-  ['50 3 * * *', 12],
-  ['50 6 * * *', 15],
-  ['50 9 * * *', 18],
-  ['50 12 * * *', 21],
-  ['50 15 * * *', 24],
-  ['50 18 * * *', 27],
-]);
-
 function required(name) {
   const value = process.env[name];
   if (!value) throw new Error(`${name} must be configured.`);
@@ -54,23 +44,21 @@ function reportHour() {
     throw new Error('REPORT_HOUR must be one of: 9, 12, 15, 18, 21, 24, 27.');
   }
 
-  const hour = SCHEDULE_HOURS.get(process.env.GITHUB_EVENT_SCHEDULE);
-  if (hour) return hour;
-
-  // GitHub does not always pass github.event.schedule to scheduled runs.
-  // Fall back to the current hour in Japan, but retain an explicit input for manual runs.
+  // Scheduled runs repeat hourly. Each run refreshes the most recently
+  // completed reporting slot, catching up after a delayed schedule.
   if (process.env.GITHUB_EVENT_NAME === 'schedule' || process.env.GITHUB_EVENT_SCHEDULE) {
     const currentHour = Number(new Intl.DateTimeFormat('en-US', {
       timeZone: 'Asia/Tokyo',
       hour: 'numeric',
       hourCycle: 'h23',
     }).format(new Date()));
-    const hourByJapanTime = new Map([[0, 24], [3, 27], [9, 9], [12, 12], [15, 15], [18, 18], [21, 21]]);
-    const fallbackHour = hourByJapanTime.get(currentHour);
-    if (fallbackHour) {
-      console.warn(`Unrecognized schedule '${process.env.GITHUB_EVENT_SCHEDULE}'. Using JST hour ${currentHour}.`);
-      return fallbackHour;
-    }
+    if (currentHour < 3) return 24;
+    if (currentHour < 9) return 27;
+    if (currentHour < 12) return 9;
+    if (currentHour < 15) return 12;
+    if (currentHour < 18) return 15;
+    if (currentHour < 21) return 18;
+    return 21;
   }
 
   throw new Error('Could not determine the target hour from the schedule. Use REPORT_HOUR for manual runs.');
