@@ -55,8 +55,25 @@ function reportHour() {
   }
 
   const hour = SCHEDULE_HOURS.get(process.env.GITHUB_EVENT_SCHEDULE);
-  if (!hour) throw new Error('Could not determine the target hour from the schedule. Use REPORT_HOUR for manual runs.');
-  return hour;
+  if (hour) return hour;
+
+  // GitHub does not always pass github.event.schedule to scheduled runs.
+  // Fall back to the current hour in Japan, but retain an explicit input for manual runs.
+  if (process.env.GITHUB_EVENT_NAME === 'schedule' || process.env.GITHUB_EVENT_SCHEDULE) {
+    const currentHour = Number(new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Tokyo',
+      hour: 'numeric',
+      hourCycle: 'h23',
+    }).format(new Date()));
+    const hourByJapanTime = new Map([[0, 24], [3, 27], [9, 9], [12, 12], [15, 15], [18, 18], [21, 21]]);
+    const fallbackHour = hourByJapanTime.get(currentHour);
+    if (fallbackHour) {
+      console.warn(`Unrecognized schedule '${process.env.GITHUB_EVENT_SCHEDULE}'. Using JST hour ${currentHour}.`);
+      return fallbackHour;
+    }
+  }
+
+  throw new Error('Could not determine the target hour from the schedule. Use REPORT_HOUR for manual runs.');
 }
 
 function reportDate(hour) {

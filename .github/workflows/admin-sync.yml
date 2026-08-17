@@ -3,7 +3,7 @@ name: 管理画面データ更新
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 17 * * *' # 日本時間 毎日 2:00
+    - cron: '0 21 * * *' # 日本時間 毎日 6:00
 
 jobs:
   sync:
