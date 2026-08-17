@@ -192,7 +192,7 @@ function parseDailyValuesInSelectedOrder(html, target, itemCount, dataName) {
   throw new Error(`${target.text} の${dataName}が見つかりません。`);
 }
 
-async function updateSheet(target, values, sheetName, endColumn) {
+async function updateSheet(target, values, sheetName, endColumn, copyStartColumnIndex, copyStartColumnLabel) {
   const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
 
   const auth = new google.auth.GoogleAuth({
@@ -226,12 +226,24 @@ async function updateSheet(target, values, sheetName, endColumn) {
     },
   });
 
-  await copyFormulasFromPreviousRow(sheets, sheetName, rowIndex);
+  await copyFormulasFromPreviousRow(
+    sheets,
+    sheetName,
+    rowIndex,
+    copyStartColumnIndex,
+    copyStartColumnLabel,
+  );
 }
 
-async function copyFormulasFromPreviousRow(sheets, sheetName, targetRowIndex) {
+async function copyFormulasFromPreviousRow(
+  sheets,
+  sheetName,
+  targetRowIndex,
+  startColumnIndex,
+  startColumnLabel,
+) {
   if (targetRowIndex === 0) {
-    throw new Error('先頭行には直上行がないため、M〜S列の数式をコピーできません。');
+    throw new Error(`先頭行には直上行がないため、${startColumnLabel}〜S列をコピーできません。`);
   }
 
   const spreadsheet = await sheets.spreadsheets.get({
@@ -252,17 +264,18 @@ async function copyFormulasFromPreviousRow(sheets, sheetName, targetRowIndex) {
             sheetId: sheet.properties.sheetId,
             startRowIndex: targetRowIndex - 1,
             endRowIndex: targetRowIndex,
-            startColumnIndex: 12, // M列
+            startColumnIndex,
             endColumnIndex: 19, // S列の次
           },
           destination: {
             sheetId: sheet.properties.sheetId,
             startRowIndex: targetRowIndex,
             endRowIndex: targetRowIndex + 1,
-            startColumnIndex: 12,
+            startColumnIndex,
             endColumnIndex: 19,
           },
-          pasteType: 'PASTE_FORMULA',
+          // 数式に加えて、%表示などの表示形式・セル書式も直上行から複製する。
+          pasteType: 'PASTE_NORMAL',
           pasteOrientation: 'NORMAL',
         },
       }],
@@ -281,10 +294,10 @@ async function main() {
   await login(client);
 
   const maleValues = await fetchMetrics(client, target);
-  await updateSheet(target, maleValues, MALE_SHEET_NAME, 'J');
+  await updateSheet(target, maleValues, MALE_SHEET_NAME, 'J', 11, 'L');
 
   const femaleValues = await fetchFemaleMetrics(client, target);
-  await updateSheet(target, femaleValues, FEMALE_SHEET_NAME, 'K');
+  await updateSheet(target, femaleValues, FEMALE_SHEET_NAME, 'K', 12, 'M');
 
   console.log(`${target.text} の男性日データ・女性日データを更新しました。`);
 }
