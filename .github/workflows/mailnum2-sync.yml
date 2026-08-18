@@ -9,8 +9,15 @@ on:
         type: choice
         options: ['9', '12', '15', '18', '21', '24', '27']
   schedule:
-    # Each hourly run refreshes the most recently completed JST reporting slot.
-    - cron: '15 * * * *'
+    # JST 9, 12, 15, 18, 21, 24, 27.  Each cron is separate so the
+    # script can retain the intended slot even if GitHub starts it late.
+    - cron: '15 0 * * *'   # 09:15 JST
+    - cron: '15 3 * * *'   # 12:15 JST
+    - cron: '15 6 * * *'   # 15:15 JST
+    - cron: '15 9 * * *'   # 18:15 JST
+    - cron: '15 12 * * *'  # 21:15 JST
+    - cron: '15 15 * * *'  # 24:15 JST
+    - cron: '15 18 * * *'  # 27:15 JST
 
 permissions:
   contents: read

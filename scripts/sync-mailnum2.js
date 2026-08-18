@@ -44,8 +44,20 @@ function reportHour() {
     throw new Error('REPORT_HOUR must be one of: 9, 12, 15, 18, 21, 24, 27.');
   }
 
-  // Scheduled runs repeat hourly. Each run refreshes the most recently
-  // completed reporting slot, catching up after a delayed schedule.
+  // Keep the intended target when a GitHub cron job starts late.
+  const scheduledHours = new Map([
+    ['15 0 * * *', 9],
+    ['15 3 * * *', 12],
+    ['15 6 * * *', 15],
+    ['15 9 * * *', 18],
+    ['15 12 * * *', 21],
+    ['15 15 * * *', 24],
+    ['15 18 * * *', 27],
+  ]);
+  const scheduledHour = scheduledHours.get(process.env.GITHUB_EVENT_SCHEDULE);
+  if (scheduledHour) return scheduledHour;
+
+  // Fallback for a legacy schedule expression without an explicit slot.
   if (process.env.GITHUB_EVENT_NAME === 'schedule' || process.env.GITHUB_EVENT_SCHEDULE) {
     const parts = new Intl.DateTimeFormat('en-US', {
       timeZone: 'Asia/Tokyo',
