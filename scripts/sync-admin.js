@@ -9,6 +9,10 @@ const LOGIN_URL = 'https://admin.digicafe.jp/dadmin.php/login';
 const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
 const MALE_SHEET_NAME = '男性日データ';
 const FEMALE_SHEET_NAME = '女性日データ';
+const SUMMARY_SHEET_NAME = '総合';
+const SUMMARY_AY_COLUMN = 'AY';
+const SUMMARY_DAY_ROW_OFFSET = 4;
+const SUMMARY_AY_ITEM_ID = 63;
 
 const labels = [
   '男性売上',
@@ -172,6 +176,24 @@ async function fetchFemaleMetrics(client, target) {
   return parseDailyValuesInSelectedOrder(response.data, target, ids.length, '女性日データ');
 }
 
+/** 管理画面の項目ID 63を、総合シートAY列用に取得する。 */
+async function fetchSummaryAyMetric(client, target) {
+  const query = new URLSearchParams({
+    year: String(target.year),
+    month: String(target.month),
+    filter: '検索',
+  });
+  query.append('associated_items[]', String(SUMMARY_AY_ITEM_ID));
+
+  const url = `https://admin.digicafe.jp/dadmin.php/ak_stats_item/analytics_month?${query}`;
+  const response = await client.get(url, { headers });
+  if (response.status !== 200) {
+    throw new Error(`総合AY列用の分析表取得に失敗しました: HTTP ${response.status}`);
+  }
+
+  return parseDailyValuesInSelectedOrder(response.data, target, 1, '総合AY列（項目ID 63）')[0];
+}
+
 /**
  * associated_items の指定順で表示される日別表から、対象日の値を取り出す。
  * 女性日データは「全体」「UF除」のペアを含む10項目を、B〜K列へ同じ順で書き込む。
@@ -233,6 +255,23 @@ async function updateSheet(target, values, sheetName, endColumn, copyStartColumn
     copyStartColumnIndex,
     copyStartColumnLabel,
   );
+}
+
+async function updateSummaryAy(target, value) {
+  const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
+  const auth = new google.auth.GoogleAuth({
+    credentials,
+    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+  });
+  const sheets = google.sheets({ version: 'v4', auth });
+  const row = target.day + SUMMARY_DAY_ROW_OFFSET;
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `'${SUMMARY_SHEET_NAME}'!${SUMMARY_AY_COLUMN}${row}`,
+    valueInputOption: 'RAW',
+    requestBody: { values: [[value]] },
+  });
 }
 
 async function copyFormulasFromPreviousRow(
@@ -299,7 +338,10 @@ async function main() {
   const femaleValues = await fetchFemaleMetrics(client, target);
   await updateSheet(target, femaleValues, FEMALE_SHEET_NAME, 'K', 12, 'M');
 
-  console.log(`${target.text} の男性日データ・女性日データを更新しました。`);
+  const summaryAyValue = await fetchSummaryAyMetric(client, target);
+  await updateSummaryAy(target, summaryAyValue);
+
+  console.log(`${target.text} の男性日データ・女性日データ・総合AY列を更新しました。AY=${summaryAyValue}`);
 }
 
 main().catch((error) => {
