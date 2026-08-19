@@ -271,6 +271,32 @@ function latestMetrics(html, source) {
   throw new Error(`mailnum2 table or the required columns were not found. title=${title || '(none)'}; forms=${loginFields.join(',') || '(none)'}; tableHeaders=${headerSummary || '(none)'}`);
 }
 
+function isTemporaryVerificationPageError(error) {
+  return error instanceof Error
+    && error.message.includes('mailnum2 table or the required columns were not found.')
+    && error.message.includes('title=少々お待ちください');
+}
+
+/**
+ * HTTP 200で一時的なアクセス確認ページが返った場合も、待機して再取得する。
+ * 表の列構成変更など、確認ページ以外の解析エラーはそのまま失敗させる。
+ */
+async function fetchMetricsWithRetry(client, url, source) {
+  const retries = 3;
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    const html = await loginIfNeeded(client, url);
+    try {
+      return latestMetrics(html, source);
+    } catch (error) {
+      if (!isTemporaryVerificationPageError(error) || attempt === retries) throw error;
+      const delay = (attempt + 1) * 10000;
+      console.warn(`Temporary access verification page returned. Retrying in ${delay / 1000} seconds (${attempt + 1}/${retries}).`);
+      await wait(delay);
+    }
+  }
+  throw new Error('mailnum2 metrics could not be retrieved.');
+}
+
 function locateTargetRow(values, date, hour, sheetName) {
   const titleIndex = values.findIndex(([columnA, columnB]) => text(columnA).startsWith(date.label) && text(columnB) === 'DC');
   if (titleIndex < 0) throw new Error(`${date.label} DC block was not found in ${sheetName}.`);
@@ -347,8 +373,11 @@ async function main() {
   const date = reportDate(hour);
   const source = sourceTimestamp(date, hour);
   const client = wrapper(axios.create({ jar: new CookieJar(), validateStatus: (status) => status >= 200 && status < 400 }));
-  const html = await loginIfNeeded(client, process.env.PHPLITEADMIN_URL || DEFAULT_PHPLITEADMIN_URL);
-  const metrics = latestMetrics(html, source);
+  const metrics = await fetchMetricsWithRetry(
+    client,
+    process.env.PHPLITEADMIN_URL || DEFAULT_PHPLITEADMIN_URL,
+    source,
+  );
   const updatedSheets = await updateSheet(metrics, hour, date);
   const destination = updatedSheets.map(({ sheetName, row, boxRow }) => `${sheetName}: row ${row}, box row ${boxRow}`).join('; ');
   console.log(`${date.label} ${hour}:00 -> ${destination}; receivemails=${metrics.receivemails}, mkt_receivemails=${metrics.mktReceivemails}, gross_dau=${metrics.grossDau}; source=${metrics.datetime}`);
