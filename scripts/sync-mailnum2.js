@@ -5,7 +5,7 @@ import * as cheerio from 'cheerio';
 import { google } from 'googleapis';
 
 const DEFAULT_PHPLITEADMIN_URL = 'https://smlovely.chatlove.xyz/dc/admin/phpliteadmin.php?database=..%2Fdb.db&table=mailnum2&fulltexts=0&numRows=30&action=row_view&sort=datetime&order=DESC';
-const SHEET_NAMES = ['目標＆振分 のコピー', '目標＆振分'];
+const SHEET_NAMES = ['目標＆振分'];
 const REQUEST_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140.0.0.0 Safari/537.36',
   Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
