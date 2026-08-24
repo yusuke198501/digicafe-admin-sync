@@ -57,8 +57,11 @@ function reportHour() {
   const scheduledHour = scheduledHours.get(process.env.GITHUB_EVENT_SCHEDULE);
   if (scheduledHour) return scheduledHour;
 
-  // Fallback for a legacy schedule expression without an explicit slot.
-  if (process.env.GITHUB_EVENT_NAME === 'schedule' || process.env.GITHUB_EVENT_SCHEDULE) {
+  // Cloud Scheduler starts this workflow through workflow_dispatch without
+  // REPORT_HOUR.  Infer the latest completed reporting slot from JST.
+  if (process.env.GITHUB_EVENT_NAME === 'schedule'
+    || process.env.GITHUB_EVENT_NAME === 'workflow_dispatch'
+    || process.env.GITHUB_EVENT_SCHEDULE) {
     const parts = new Intl.DateTimeFormat('en-US', {
       timeZone: 'Asia/Tokyo',
       hourCycle: 'h23',

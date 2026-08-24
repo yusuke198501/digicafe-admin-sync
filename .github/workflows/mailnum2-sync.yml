@@ -4,8 +4,8 @@ on:
   workflow_dispatch:
     inputs:
       report_hour:
-        description: Target reporting hour
-        required: true
+        description: Target reporting hour (leave blank when started by Cloud Scheduler)
+        required: false
         type: choice
         options: ['9', '12', '15', '18', '21', '24', '27']
   schedule:
