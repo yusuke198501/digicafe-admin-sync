@@ -1,0 +1,40 @@
+name: 前回実績更新
+
+on:
+  schedule:
+    # GitHub Actions の cron は UTC。日本時間 08:05 に実行する。
+    - cron: '5 23 * * *'
+  workflow_dispatch:
+    inputs:
+      report_date:
+        description: 対象日（YYYY-MM-DD、省略時は日本時間の当日）
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: previous-results-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - run: npm install
+
+      - run: node scripts/sync-previous-results.js
+        env:
+          REPORT_DATE: ${{ inputs.report_date }}
+          LOG_ACCOUNT: ${{ secrets.LOG_ACCOUNT }}
+          LOG_PASSWORD: ${{ secrets.LOG_PASSWORD }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          PREVIOUS_RESULTS_SPREADSHEET_ID: ${{ secrets.PREVIOUS_RESULTS_SPREADSHEET_ID }}
