@@ -104,9 +104,9 @@ async function login() {
   const client = wrapper(axios.create({ jar: new CookieJar(), maxRedirects: 5, validateStatus: () => true }));
   const first = await client.get(LOGIN_URL);
   if (first.status !== 200) throw new Error(`管理画面ログインページ取得失敗: HTTP ${first.status}`);
-  const form = new URLSearchParams({ mode: '', account: process.env.LOG_ACCOUNT, pass: process.env.LOG_PASSWORD });
+  const form = new URLSearchParams({ mode: 'login', account: process.env.LOG_ACCOUNT, pass: process.env.LOG_PASSWORD });
   const response = await client.post(LOGIN_URL, form, { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
-  if (response.status !== 200 || !String(response.data).includes('運営データ確認ページ')) {
+  if (response.status !== 200 || !String(response.data).includes('ログアウト')) {
     throw new Error('管理画面にログインできませんでした。');
   }
   return client;
