@@ -124,10 +124,13 @@ async function fetchStats(client, mailDay, reportDay) {
   let matched = null;
   $('table').each((_, element) => {
     if (matched) return;
-    const accounts = $(element).find('tr').first().children('th,td').toArray().map((cell) => $(cell).text().trim());
-    if (!accounts.includes('y_uekubo')) return;
-    const totals = $(element).find('tr').toArray().map((row) => $(row).children('th,td').toArray().map((cell) => $(cell).text().trim()))
-      .find((cells) => cells[0] === '合計');
+    const tableRows = $(element).find('tr').toArray()
+      .map((row) => $(row).children('th,td').toArray().map((cell) => $(cell).text().trim()));
+    // 表題行ではなく、ログインアカウント名が並ぶ見出し行を使う。
+    // 管理画面は表題行を先頭に追加することがあるため、first() 固定では取得できない。
+    const accounts = tableRows.find((cells) => cells.includes('y_uekubo'));
+    if (!accounts) return;
+    const totals = tableRows.find((cells) => cells.some((cell) => cell === '合計'));
     if (totals) matched = { accounts, totals };
   });
   if (!matched) throw new Error(`${shortDate(mailDay)} のログインアカウント別合計表が見つかりません。`);
