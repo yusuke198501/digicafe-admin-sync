@@ -135,8 +135,20 @@ async function fetchStats(client, mailDay, reportDay) {
   });
   if (!matched) throw new Error(`${shortDate(mailDay)} のログインアカウント別合計表が見つかりません。`);
   const values = matched.totals.slice(1).map(number);
-  if (values.length < matched.accounts.length * 7) throw new Error(`${shortDate(mailDay)} の合計表の列数が不足しています。`);
-  return new Map(matched.accounts.map((account, index) => [account, [values[index * 7], values[index * 7 + 1]]]));
+  // 先頭に見出しセルが含まれる場合がある。また、管理画面の項目追加で
+  // アカウント単位の列数が変わるため、合計行から実際のグループ幅を求める。
+  let accounts = matched.accounts;
+  let groupWidth = 0;
+  for (let offset = 0; offset < matched.accounts.length; offset += 1) {
+    const candidate = matched.accounts.slice(offset);
+    if (candidate.length >= 1 && values.length % candidate.length === 0 && values.length / candidate.length >= 2) {
+      accounts = candidate;
+      groupWidth = values.length / candidate.length;
+      break;
+    }
+  }
+  if (!groupWidth) throw new Error(`${shortDate(mailDay)} の合計表の列構成を判定できません。`);
+  return new Map(accounts.map((account, index) => [account, [values[index * groupWidth], values[index * groupWidth + 1]]]));
 }
 
 async function main() {
