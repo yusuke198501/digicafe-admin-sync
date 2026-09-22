@@ -4,7 +4,8 @@ import { CookieJar } from 'tough-cookie';
 import * as cheerio from 'cheerio';
 import { google } from 'googleapis';
 
-const DEFAULT_PHPLITEADMIN_URL = 'https://smlovely.chatlove.xyz/dc/admin/phpliteadmin.php?database=..%2Fdb.db&table=mailnum2&fulltexts=0&numRows=30&action=row_view&sort=datetime&order=DESC';
+const LOGIN_URL = 'https://log.digicafe.jp/partner/';
+const REPORT_URL = 'https://log.digicafe.jp/partner/mailnum_uf';
 const SHEET_NAMES = ['目標＆振分'];
 const REQUEST_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140.0.0.0 Safari/537.36',
@@ -110,6 +111,8 @@ function reportDate(hour) {
     month: date.getUTCMonth() + 1,
     day: date.getUTCDate(),
     label: `${date.getUTCMonth() + 1}/${date.getUTCDate()}`,
+    iso: `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`,
+    display: `${date.getUTCFullYear()}/${String(date.getUTCMonth() + 1).padStart(2, '0')}/${String(date.getUTCDate()).padStart(2, '0')}`,
   };
 }
 
@@ -300,6 +303,87 @@ async function fetchMetricsWithRetry(client, url, source) {
   throw new Error('mailnum2 metrics could not be retrieved.');
 }
 
+async function loginToReport() {
+  const client = wrapper(axios.create({ jar: new CookieJar(), maxRedirects: 5, validateStatus: () => true }));
+  await client.get(LOGIN_URL, { headers: REQUEST_HEADERS });
+  const response = await client.post(LOGIN_URL, new URLSearchParams({
+    mode: 'login', account: required('LOG_ACCOUNT'), pass: required('LOG_PASSWORD'),
+  }), { headers: { ...REQUEST_HEADERS, 'Content-Type': 'application/x-www-form-urlencoded' } });
+  if (response.status !== 200 || !String(response.data).includes('ログアウト')) {
+    throw new Error('管理画面にログインできませんでした。LOG_ACCOUNT と LOG_PASSWORD を確認してください。');
+  }
+  return client;
+}
+
+function reportRows($, table) {
+  return $(table).find('tr').toArray().map((row) => $(row).children('th,td').toArray()
+    .map((cell) => $(cell).text().replace(/\s+/g, ' ').trim()));
+}
+
+function reportTable($, label) {
+  const heading = $('h1,h2,h3,h4,h5,h6').toArray()
+    .find((element) => text($(element).text()) === text(label));
+  if (!heading) throw new Error(`表題「${label}」が見つかりません。`);
+  const table = $(heading).nextAll('table').first();
+  if (!table.length) throw new Error(`表題「${label}」の表が見つかりません。`);
+  return table;
+}
+
+function metricNumber(value, label) {
+  const number = Number(String(value ?? '').replace(/,/g, '').replace(/[^0-9.-]/g, ''));
+  if (!Number.isFinite(number)) throw new Error(`「${label}」の数値を取得できませんでした。`);
+  return number;
+}
+
+function folderReceive(rows, date, header) {
+  const index = rows[0].map(text).indexOf(text(header));
+  const data = rows.find((row) => text(row[0]) === date.display);
+  if (index < 0 || !data) throw new Error(`フォルダ別/日毎の「${header}」または ${date.display} の行が見つかりません。`);
+  // ヘッダーには日付列がなく、データ行だけ先頭に日付列がある。
+  return metricNumber(data[index + 1], header);
+}
+
+function reportMetrics(html, date) {
+  const $ = cheerio.load(html);
+  const overallTable = $('table').toArray().find((table) => text($(table).find('tr').first().text()) === '全体受信データ');
+  if (!overallTable) throw new Error('全体受信データの表が見つかりません。');
+  const overallRows = reportRows($, overallTable);
+  const overallIndex = overallRows[1]?.map(text).indexOf('メール総数');
+  if (overallIndex === undefined || overallIndex < 0 || !overallRows[2]) throw new Error('全体受信データの「メール総数」が見つかりません。');
+
+  const folderRows = reportRows($, reportTable($, 'UF_MKT系データ(フォルダ別/日毎)'));
+  const dauRows = reportRows($, reportTable($, 'UF_MKT系データ(フォルダ別DAU/日毎)'));
+  const dauIndex = dauRows[0].map(text).indexOf('DAU(グロス)');
+  const dauData = dauRows.find((row) => text(row[0]) === date.display);
+  if (dauIndex < 0 || !dauData) throw new Error(`DAU（グロス）または ${date.display} の行が見つかりません。`);
+
+  return {
+    receivemails: metricNumber(overallRows[2][overallIndex], 'メール総数'),
+    mktReceivemails: folderReceive(folderRows, date, '受信合計'),
+    grossDau: metricNumber(dauData[dauIndex + 1], 'DAU（グロス）'),
+    boxAReceivemails: folderReceive(folderRows, date, 'A受信'),
+    boxBReceivemails: folderReceive(folderRows, date, 'B受信'),
+    boxCReceivemails: folderReceive(folderRows, date, 'C受信'),
+    boxEReceivemails: folderReceive(folderRows, date, 'E受信'),
+    boxIReceivemails: folderReceive(folderRows, date, 'I受信'),
+    boxJReceivemails: folderReceive(folderRows, date, 'J受信'),
+    boxMReceivemails: folderReceive(folderRows, date, 'M受信'),
+    boxQReceivemails: folderReceive(folderRows, date, 'Q受信'),
+  };
+}
+
+async function fetchReportMetrics(date) {
+  const client = await loginToReport();
+  const query = new URLSearchParams({
+    sex: '1', sort: 'times', mail_start: date.iso, mail_end: date.iso,
+    code: '', frm: '', created_at_start: date.iso, created_at_end: date.iso,
+    disp_type: '', folder_rcv_source: 'point', sum: '集計',
+  });
+  const response = await client.get(`${REPORT_URL}?${query}`, { headers: REQUEST_HEADERS });
+  if (response.status !== 200) throw new Error(`管理画面データの取得に失敗しました（HTTP ${response.status}）。`);
+  return reportMetrics(response.data, date);
+}
+
 function locateTargetRow(values, date, hour, sheetName) {
   const titleIndex = values.findIndex(([columnA, columnB]) => text(columnA).startsWith(date.label) && text(columnB) === 'DC');
   if (titleIndex < 0) throw new Error(`${date.label} DC block was not found in ${sheetName}.`);
@@ -374,16 +458,10 @@ async function updateSheet(metrics, hour, date) {
 async function main() {
   const hour = reportHour();
   const date = reportDate(hour);
-  const source = sourceTimestamp(date, hour);
-  const client = wrapper(axios.create({ jar: new CookieJar(), validateStatus: (status) => status >= 200 && status < 400 }));
-  const metrics = await fetchMetricsWithRetry(
-    client,
-    process.env.PHPLITEADMIN_URL || DEFAULT_PHPLITEADMIN_URL,
-    source,
-  );
+  const metrics = await fetchReportMetrics(date);
   const updatedSheets = await updateSheet(metrics, hour, date);
   const destination = updatedSheets.map(({ sheetName, row, boxRow }) => `${sheetName}: row ${row}, box row ${boxRow}`).join('; ');
-  console.log(`${date.label} ${hour}:00 -> ${destination}; receivemails=${metrics.receivemails}, mkt_receivemails=${metrics.mktReceivemails}, gross_dau=${metrics.grossDau}; source=${metrics.datetime}`);
+  console.log(`${date.label} ${hour}:00 -> ${destination}; all_receive=${metrics.receivemails}, uf_receive=${metrics.mktReceivemails}, gross_dau=${metrics.grossDau}; source=${date.display}`);
 }
 
 main().catch((error) => {
