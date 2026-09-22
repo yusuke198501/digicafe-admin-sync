@@ -324,7 +324,10 @@ function reportTable($, label) {
   const heading = $('h1,h2,h3,h4,h5,h6').toArray()
     .find((element) => text($(element).text()) === text(label));
   if (!heading) throw new Error(`表題「${label}」が見つかりません。`);
-  const table = $(heading).nextAll('table').first();
+  // 管理画面では表が table の直後ではなく、ラッパー要素内に置かれる場合がある。
+  // そのため、見出しの後に続く要素の中も含めて最初の表を取得する。
+  const following = $(heading).nextAll();
+  const table = following.filter('table').first().add(following.find('table').first()).first();
   if (!table.length) throw new Error(`表題「${label}」の表が見つかりません。`);
   return table;
 }
