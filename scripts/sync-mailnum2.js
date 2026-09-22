@@ -342,8 +342,8 @@ function folderReceive(rows, date, header) {
   const index = rows[0].map(text).indexOf(text(header));
   const data = rows.find((row) => text(row[0]) === date.display);
   if (index < 0 || !data) throw new Error(`フォルダ別/日毎の「${header}」または ${date.display} の行が見つかりません。`);
-  // ヘッダーには日付列がなく、データ行だけ先頭に日付列がある。
-  return metricNumber(data[index + 1], header);
+  // ヘッダー先頭にも日付列用の空セルがあるため、データ行と列位置は一致する。
+  return metricNumber(data[index], header);
 }
 
 function reportMetrics(html, date) {
@@ -363,7 +363,7 @@ function reportMetrics(html, date) {
   return {
     receivemails: metricNumber(overallRows[2][overallIndex], 'メール総数'),
     mktReceivemails: folderReceive(folderRows, date, '受信合計'),
-    grossDau: metricNumber(dauData[dauIndex + 1], 'DAU（グロス）'),
+    grossDau: metricNumber(dauData[dauIndex], 'DAU（グロス）'),
     boxAReceivemails: folderReceive(folderRows, date, 'A受信'),
     boxBReceivemails: folderReceive(folderRows, date, 'B受信'),
     boxCReceivemails: folderReceive(folderRows, date, 'C受信'),
