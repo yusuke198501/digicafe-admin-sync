@@ -1,0 +1,27 @@
+name: mailnum_uf 確認
+
+on:
+  workflow_dispatch:
+    inputs:
+      report_date:
+        description: 対象日（YYYY-MM-DD、省略時は日本時間の当日）
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - run: npm install
+      - run: node scripts/inspect-mailnum-uf.js
+        env:
+          REPORT_DATE: ${{ inputs.report_date }}
+          LOG_ACCOUNT: ${{ secrets.LOG_ACCOUNT }}
+          LOG_PASSWORD: ${{ secrets.LOG_PASSWORD }}
