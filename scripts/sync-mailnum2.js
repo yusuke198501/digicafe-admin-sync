@@ -346,6 +346,29 @@ function folderReceive(rows, date, header) {
   return metricNumber(data[index], header);
 }
 
+function expandedTableRows($, table) {
+  return $(table).find('tr').toArray().map((row) => $(row).children('th,td').toArray()
+    .flatMap((cell) => {
+      const colspan = Number($(cell).attr('colspan') ?? 1);
+      const value = $(cell).text().replace(/\s+/g, ' ').trim();
+      return Array.from({ length: Number.isFinite(colspan) && colspan > 0 ? colspan : 1 }, () => value);
+    }));
+}
+
+function loginAccountSend(html, date) {
+  const $ = cheerio.load(html);
+  const rows = expandedTableRows($, reportTable($, 'UF_MKT系データ(ログインアカウント別/日毎)'));
+  const accountHeader = rows.find((row) => text(row[0]) === '全体');
+  const metricHeader = rows.find((row) => text(row[0]) === 'やり取り送信');
+  const data = rows.find((row) => text(row[0]) === date.display);
+  if (!accountHeader || !metricHeader || !data) {
+    throw new Error(`ログインアカウント別/日毎の全体送信または ${date.display} の行が見つかりません。`);
+  }
+  const index = accountHeader.findIndex((value, column) => text(value) === '全体' && text(metricHeader[column]) === 'やり取り送信');
+  if (index < 0) throw new Error('ログインアカウント別/日毎の「全体 / やり取り送信」が見つかりません。');
+  return metricNumber(data[index], '全体 / やり取り送信');
+}
+
 function reportMetrics(html, date) {
   const $ = cheerio.load(html);
   const overallTable = $('table').toArray().find((table) => text($(table).find('tr').first().text()) === '全体受信データ');
@@ -372,6 +395,11 @@ function reportMetrics(html, date) {
     boxJReceivemails: folderReceive(folderRows, date, 'J受信'),
     boxMReceivemails: folderReceive(folderRows, date, 'M受信'),
     boxQReceivemails: folderReceive(folderRows, date, 'Q受信'),
+    sendTotal: loginAccountSend(html, date),
+    boxASend: folderReceive(folderRows, date, 'Aやり取り'),
+    boxBSend: folderReceive(folderRows, date, 'Bやり取り'),
+    boxCSend: folderReceive(folderRows, date, 'Cやり取り'),
+    boxESend: folderReceive(folderRows, date, 'Eやり取り'),
   };
 }
 
@@ -419,6 +447,23 @@ function locateBoxTargetRow(values, date, hour, sheetName) {
   return rowIndex + 1;
 }
 
+function locateSendTargetRow(values, date, hour, sheetName) {
+  const titleIndex = values.findIndex(([columnA, columnB]) => text(columnA).startsWith(date.label) && text(columnB) === 'DC');
+  if (titleIndex < 0) throw new Error(`${date.label} DC block was not found in ${sheetName}.`);
+
+  const sendHeaderIndex = values.findIndex((columns, index) => index > titleIndex
+    && index < titleIndex + 50
+    && ['A', 'B', 'C', 'E', '全体'].every((label) => columns.some((column) => text(column) === label))
+    && columns.some((column) => text(column) === '送信数'));
+  if (sendHeaderIndex < 0) throw new Error(`The send table was not found below the ${date.label} DC block.`);
+
+  const rowIndex = values.findIndex((columns, index) => index > sendHeaderIndex
+    && index < sendHeaderIndex + 10
+    && columns.some((column) => text(column) === String(hour)));
+  if (rowIndex < 0) throw new Error(`${hour} o'clock row was not found in the ${date.label} DC send table.`);
+  return rowIndex + 1;
+}
+
 async function updateSheet(metrics, hour, date) {
   const auth = new google.auth.GoogleAuth({
     credentials: JSON.parse(required('GOOGLE_SERVICE_ACCOUNT_JSON')),
@@ -428,11 +473,12 @@ async function updateSheet(metrics, hour, date) {
   const spreadsheetId = required('SPREADSHEET_ID');
   const results = [];
   for (const sheetName of SHEET_NAMES) {
-    const range = `'${sheetName}'!A:C`;
+    const range = `'${sheetName}'!A:Q`;
     const source = await sheets.spreadsheets.values.get({ spreadsheetId, range });
     const values = source.data.values ?? [];
     const row = locateTargetRow(values, date, hour, sheetName);
     const boxRow = locateBoxTargetRow(values, date, hour, sheetName);
+    const sendRow = locateSendTargetRow(values, date, hour, sheetName);
 
     await sheets.spreadsheets.values.batchUpdate({
       spreadsheetId,
@@ -450,10 +496,13 @@ async function updateSheet(metrics, hour, date) {
           { range: `'${sheetName}'!M${boxRow}`, values: [[metrics.boxJReceivemails]] },
           { range: `'${sheetName}'!O${boxRow}`, values: [[metrics.boxMReceivemails]] },
           { range: `'${sheetName}'!Q${boxRow}`, values: [[metrics.boxQReceivemails]] },
+          { range: `'${sheetName}'!L${sendRow}:P${sendRow}`, values: [[
+            metrics.boxASend, metrics.boxBSend, metrics.boxCSend, metrics.boxESend, metrics.sendTotal,
+          ]] },
         ],
       },
     });
-    results.push({ sheetName, row, boxRow });
+    results.push({ sheetName, row, boxRow, sendRow });
   }
   return results;
 }
@@ -463,8 +512,8 @@ async function main() {
   const date = reportDate(hour);
   const metrics = await fetchReportMetrics(date);
   const updatedSheets = await updateSheet(metrics, hour, date);
-  const destination = updatedSheets.map(({ sheetName, row, boxRow }) => `${sheetName}: row ${row}, box row ${boxRow}`).join('; ');
-  console.log(`${date.label} ${hour}:00 -> ${destination}; all_receive=${metrics.receivemails}, uf_receive=${metrics.mktReceivemails}, gross_dau=${metrics.grossDau}; source=${date.display}`);
+  const destination = updatedSheets.map(({ sheetName, row, boxRow, sendRow }) => `${sheetName}: row ${row}, box row ${boxRow}, send row ${sendRow}`).join('; ');
+  console.log(`${date.label} ${hour}:00 -> ${destination}; all_receive=${metrics.receivemails}, uf_receive=${metrics.mktReceivemails}, gross_dau=${metrics.grossDau}, send_a=${metrics.boxASend}, send_b=${metrics.boxBSend}, send_c=${metrics.boxCSend}, send_e=${metrics.boxESend}, send_total=${metrics.sendTotal}; source=${date.display}`);
 }
 
 main().catch((error) => {
