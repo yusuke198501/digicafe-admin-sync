@@ -1,6 +1,15 @@
 name: mailnum2 sync
 
 on:
+  schedule:
+    # UTC。日本時間の 9, 12, 15, 18, 21, 24, 27 時の各15分頃。
+    - cron: '15 0 * * *'
+    - cron: '15 3 * * *'
+    - cron: '15 6 * * *'
+    - cron: '15 9 * * *'
+    - cron: '15 12 * * *'
+    - cron: '15 15 * * *'
+    - cron: '15 18 * * *'
   workflow_dispatch:
     inputs:
       report_hour:
