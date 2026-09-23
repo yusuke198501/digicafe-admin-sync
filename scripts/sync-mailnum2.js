@@ -358,15 +358,20 @@ function expandedTableRows($, table) {
 function loginAccountSend(html, date) {
   const $ = cheerio.load(html);
   const rows = expandedTableRows($, reportTable($, 'UF_MKT系データ(ログインアカウント別/日毎)'));
-  const accountHeader = rows.find((row) => text(row[0]) === '全体');
+  const accountHeader = rows.find((row) => row.some((value) => text(value) === '全体'));
   const metricHeader = rows.find((row) => text(row[0]) === 'やり取り送信');
   const data = rows.find((row) => text(row[0]) === date.display);
   if (!accountHeader || !metricHeader || !data) {
     throw new Error(`ログインアカウント別/日毎の全体送信または ${date.display} の行が見つかりません。`);
   }
-  const index = accountHeader.findIndex((value, column) => text(value) === '全体' && text(metricHeader[column]) === 'やり取り送信');
-  if (index < 0) throw new Error('ログインアカウント別/日毎の「全体 / やり取り送信」が見つかりません。');
-  return metricNumber(data[index], '全体 / やり取り送信');
+  const accountIndex = accountHeader.findIndex((value) => text(value) === '全体');
+  // The account header has a leading blank date column while the metric header
+  // starts directly with the seven metrics, so the two headers are offset by one.
+  const metricIndex = metricHeader.length === accountHeader.length - 1 ? accountIndex - 1 : accountIndex;
+  if (accountIndex < 0 || text(metricHeader[metricIndex]) !== 'やり取り送信') {
+    throw new Error('ログインアカウント別/日毎の「全体 / やり取り送信」が見つかりません。');
+  }
+  return metricNumber(data[accountIndex], '全体 / やり取り送信');
 }
 
 function reportMetrics(html, date) {
