@@ -7,6 +7,7 @@ import { google } from 'googleapis';
 const LOGIN_URL = 'https://log.digicafe.jp/partner/';
 const REPORT_URL = 'https://log.digicafe.jp/partner/mailnum_uf';
 const PHPLITEADMIN_URL = 'https://smlovely.chatlove.xyz/dc/admin/phpliteadmin.php?database=..%2Fdb.db&table=mailnum2&fulltexts=0&numRows=30&action=row_view';
+const PHPLITEADMIN_SQL_URL = 'https://smlovely.chatlove.xyz/dc/admin/phpliteadmin.php?database=..%2Fdb.db&table=mailnum2&fulltexts=0&numRows=30&action=table_sql';
 const SHEET_NAMES = ['目標＆振分'];
 const REQUEST_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140.0.0.0 Safari/537.36',
@@ -292,6 +293,42 @@ async function fetchMetricsWithRetry(client, url, source) {
   throw new Error('mailnum2 metrics could not be retrieved.');
 }
 
+/**
+ * 一覧表示は右端の gross_dau 列を省略するため、SQL画面から必要な3列だけを読む。
+ * これにより一覧の表示件数・列数の変更に影響されない。
+ */
+async function fetchArchiveMetrics(client, source) {
+  const start = new Date(Date.UTC(source.year, source.month - 1, source.day, source.hour));
+  const end = new Date(start.getTime() + 60 * 60 * 1000);
+  const sqliteTimestamp = (value) => `${value.getUTCFullYear()}-${String(value.getUTCMonth() + 1).padStart(2, '0')}-${String(value.getUTCDate()).padStart(2, '0')} ${String(value.getUTCHours()).padStart(2, '0')}:00:00`;
+  const sql = [
+    'SELECT datetime, receivemails, gross_dau',
+    'FROM mailnum2',
+    `WHERE datetime >= '${sqliteTimestamp(start)}'`,
+    `AND datetime < '${sqliteTimestamp(end)}'`,
+    'ORDER BY datetime DESC',
+    'LIMIT 1;',
+  ].join(' ');
+  const html = await loginIfNeeded(client, PHPLITEADMIN_SQL_URL);
+  const $ = cheerio.load(html);
+  const form = $('textarea[name="queryval"]').first().closest('form');
+  if (!form.length) throw new Error('phpLiteAdmin SQL query form was not found.');
+
+  const payload = new URLSearchParams();
+  form.find('input[name], textarea[name]').each((_, field) => {
+    const input = $(field);
+    const name = input.attr('name');
+    if (!name || input.attr('type') === 'submit') return;
+    payload.set(name, input.is('textarea') ? input.text() : (input.attr('value') ?? ''));
+  });
+  payload.set('queryval', sql);
+  const action = new URL(form.attr('action') || PHPLITEADMIN_SQL_URL, PHPLITEADMIN_SQL_URL).toString();
+  const response = await fetchWithRetry('phpLiteAdmin SQL query', () => client.post(action, payload, {
+    headers: { ...REQUEST_HEADERS, 'Content-Type': 'application/x-www-form-urlencoded' },
+  }));
+  return latestMetrics(response.data, source);
+}
+
 async function loginToReport() {
   const client = wrapper(axios.create({ jar: new CookieJar(), maxRedirects: 5, validateStatus: () => true }));
   await client.get(LOGIN_URL, { headers: REQUEST_HEADERS });
@@ -522,7 +559,7 @@ async function main() {
   const hour = reportHour();
   const date = reportDate(hour);
   const archiveClient = wrapper(axios.create({ jar: new CookieJar(), maxRedirects: 5, validateStatus: () => true }));
-  const receiveMetrics = await fetchMetricsWithRetry(archiveClient, PHPLITEADMIN_URL, sourceTimestamp(date, hour));
+  const receiveMetrics = await fetchArchiveMetrics(archiveClient, sourceTimestamp(date, hour));
   const sendMetrics = await fetchReportMetrics(date, hour);
   const metrics = { ...receiveMetrics, ...sendMetrics };
   const updatedSheets = await updateSheet(metrics, hour, date);
