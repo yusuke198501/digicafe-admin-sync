@@ -43,8 +43,8 @@ function jstDateParts() {
 function reportHour() {
   if (process.env.REPORT_HOUR) {
     const hour = Number(process.env.REPORT_HOUR);
-    if ([9, 12, 15, 18, 21, 24, 27].includes(hour)) return hour;
-    throw new Error('REPORT_HOUR must be one of: 9, 12, 15, 18, 21, 24, 27.');
+    if ([9, 12, 15, 18, 20, 21, 24, 27].includes(hour)) return hour;
+    throw new Error('REPORT_HOUR must be one of: 9, 12, 15, 18, 20, 21, 24, 27.');
   }
 
   // Keep the intended target when a GitHub cron job starts late.
@@ -560,11 +560,13 @@ async function updateSheet(metrics, hour, date) {
 async function main() {
   const hour = reportHour();
   const date = reportDate(hour);
+  // 臨時の20時集計は、20時までの確定値を21時行へ記録する。
+  const targetHour = hour === 20 ? 21 : hour;
   const archiveClient = wrapper(axios.create({ jar: new CookieJar(), maxRedirects: 5, validateStatus: () => true }));
   const receiveMetrics = await fetchArchiveMetrics(archiveClient, sourceTimestamp(date, hour));
   const sendMetrics = await fetchReportMetrics(date, hour);
   const metrics = { ...receiveMetrics, ...sendMetrics };
-  const updatedSheets = await updateSheet(metrics, hour, date);
+  const updatedSheets = await updateSheet(metrics, targetHour, date);
   const destination = updatedSheets.map(({ sheetName, row, boxRow, sendRow }) => `${sheetName}: row ${row}, box row ${boxRow}, send row ${sendRow}`).join('; ');
   console.log(`${date.label} ${hour}:00 -> ${destination}; all_receive=${metrics.receivemails}, uf_receive=${metrics.mktReceivemails}, gross_dau=${metrics.grossDau}, send_a=${metrics.boxASend}, send_b=${metrics.boxBSend}, send_c=${metrics.boxCSend}, send_e=${metrics.boxESend}, send_total=${metrics.sendTotal}; source=${date.display}`);
 }
