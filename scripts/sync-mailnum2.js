@@ -387,10 +387,33 @@ function cumulativeHourlyMetric(rows, header, hour) {
     .reduce((total, row) => total + metricNumber(row[headerIndex], header), 0);
 }
 
+function cumulativeUfReceive(html, hour) {
+  const $ = cheerio.load(html);
+  const rows = expandedTableRows($, reportTable($, 'UF_MKT系データ(ログインアカウント別/時間毎)'));
+  const accountHeader = rows.find((row) => row.some((value) => text(value) === '全体'));
+  const metricHeader = rows.find((row) => text(row[0]) === 'やり取り送信');
+  if (!accountHeader || !metricHeader) {
+    throw new Error('ログインアカウント別/時間毎の全体受信データが見つかりません。');
+  }
+
+  const accountIndex = accountHeader.findIndex((value) => text(value) === '全体');
+  const receiveTypes = ['やり取り受信', '個別受信', '同報受信'];
+  const indices = receiveTypes.map((label) => {
+    const metricIndex = metricHeader.findIndex((value) => text(value) === text(label));
+    if (metricIndex < 0) throw new Error(`ログインアカウント別/時間毎の「${label}」が見つかりません。`);
+    return accountIndex + metricIndex;
+  });
+
+  return rows
+    .filter((row) => /^\d+時$/.test(text(row[0])) && Number(text(row[0]).replace('時', '')) < hour)
+    .reduce((total, row) => total + indices.reduce((sum, index) => sum + metricNumber(row[index], 'UF受信'), 0), 0);
+}
+
 function reportMetrics(html, date, hour) {
   const $ = cheerio.load(html);
   const hourlyRows = reportRows($, reportTable($, 'UF_MKT系データ(フォルダ別/時間毎)'));
   return {
+    mktReceivemails: cumulativeUfReceive(html, hour),
     boxAReceivemails: cumulativeHourlyMetric(hourlyRows, 'A受信', hour),
     boxBReceivemails: cumulativeHourlyMetric(hourlyRows, 'B受信', hour),
     boxCReceivemails: cumulativeHourlyMetric(hourlyRows, 'C受信', hour),
