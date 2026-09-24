@@ -391,6 +391,14 @@ function reportMetrics(html, date, hour) {
   const $ = cheerio.load(html);
   const hourlyRows = reportRows($, reportTable($, 'UF_MKT系データ(フォルダ別/時間毎)'));
   return {
+    boxAReceivemails: cumulativeHourlyMetric(hourlyRows, 'A受信', hour),
+    boxBReceivemails: cumulativeHourlyMetric(hourlyRows, 'B受信', hour),
+    boxCReceivemails: cumulativeHourlyMetric(hourlyRows, 'C受信', hour),
+    boxEReceivemails: cumulativeHourlyMetric(hourlyRows, 'E受信', hour),
+    boxIReceivemails: cumulativeHourlyMetric(hourlyRows, 'I受信', hour),
+    boxJReceivemails: cumulativeHourlyMetric(hourlyRows, 'J受信', hour),
+    boxMReceivemails: cumulativeHourlyMetric(hourlyRows, 'M受信', hour),
+    boxQReceivemails: cumulativeHourlyMetric(hourlyRows, 'Q受信', hour),
     sendTotal: cumulativeHourlyMetric(hourlyRows, 'やり取り送信', hour),
     boxASend: cumulativeHourlyMetric(hourlyRows, 'Aやり取り', hour),
     boxBSend: cumulativeHourlyMetric(hourlyRows, 'Bやり取り', hour),
