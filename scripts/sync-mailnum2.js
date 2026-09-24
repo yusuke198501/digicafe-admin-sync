@@ -43,8 +43,8 @@ function jstDateParts() {
 function reportHour() {
   if (process.env.REPORT_HOUR) {
     const hour = Number(process.env.REPORT_HOUR);
-    if ([9, 12, 15, 18, 20, 21, 24, 27].includes(hour)) return hour;
-    throw new Error('REPORT_HOUR must be one of: 9, 12, 15, 18, 20, 21, 24, 27.');
+    if ([9, 12, 15, 18, 20, 21, 22, 23, 24, 27].includes(hour)) return hour;
+    throw new Error('REPORT_HOUR must be one of: 9, 12, 15, 18, 20, 21, 22, 23, 24, 27.');
   }
 
   // Keep the intended target when a GitHub cron job starts late.
@@ -562,8 +562,8 @@ async function updateSheet(metrics, hour, date) {
 async function main() {
   const hour = reportHour();
   const date = reportDate(hour);
-  // 臨時の20時集計は、20時までの確定値を21時行へ記録する。
-  const targetHour = hour === 20 ? 21 : hour;
+  // 臨時の20時集計は21時行へ、22時・23時集計は24時行へ記録する。
+  const targetHour = hour === 20 ? 21 : ([22, 23].includes(hour) ? 24 : hour);
   const archiveClient = wrapper(axios.create({ jar: new CookieJar(), maxRedirects: 5, validateStatus: () => true }));
   const receiveMetrics = await fetchArchiveMetrics(archiveClient, sourceTimestamp(date, hour));
   const sendMetrics = await fetchReportMetrics(date, hour);
