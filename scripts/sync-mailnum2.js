@@ -226,11 +226,9 @@ function latestMetrics(html, source) {
     const boxJReceiveIndex = headers.indexOf('box_j_receivemails');
     const boxMReceiveIndex = headers.indexOf('box_m_receivemails');
     const boxQReceiveIndex = headers.indexOf('box_q_receivemails');
-    const requiredIndices = [
-      datetimeIndex, receiveIndex, mktReceiveIndex, grossDauIndex,
-      boxAReceiveIndex, boxBReceiveIndex, boxCReceiveIndex, boxEReceiveIndex,
-      boxIReceiveIndex, boxJReceiveIndex, boxMReceiveIndex, boxQReceiveIndex,
-    ];
+    // UF受信・BOX受信は管理画面の時間別表で取得する。
+    // 履歴DBから必要なのは、同時点の全体受信とDAUだけ。
+    const requiredIndices = [datetimeIndex, receiveIndex, grossDauIndex];
     if (requiredIndices.some((index) => index < 0)) continue;
 
     const values = rows.slice(headerIndex + 1)
@@ -239,28 +237,18 @@ function latestMetrics(html, source) {
       .map((cells) => ({
         datetime: cells[datetimeIndex].replace(/\s+/g, ' '),
         receivemails: Number(cells[receiveIndex]),
-        mktReceivemails: Number(cells[mktReceiveIndex]),
+        mktReceivemails: Number(cells[mktReceiveIndex] ?? 0),
         grossDau: Number(cells[grossDauIndex]),
-        boxAReceivemails: Number(cells[boxAReceiveIndex]),
-        boxBReceivemails: Number(cells[boxBReceiveIndex]),
-        boxCReceivemails: Number(cells[boxCReceiveIndex]),
-        boxEReceivemails: Number(cells[boxEReceiveIndex]),
-        boxIReceivemails: Number(cells[boxIReceiveIndex]),
-        boxJReceivemails: Number(cells[boxJReceiveIndex]),
-        boxMReceivemails: Number(cells[boxMReceiveIndex]),
-        boxQReceivemails: Number(cells[boxQReceiveIndex]),
+        boxAReceivemails: Number(cells[boxAReceiveIndex] ?? 0),
+        boxBReceivemails: Number(cells[boxBReceiveIndex] ?? 0),
+        boxCReceivemails: Number(cells[boxCReceiveIndex] ?? 0),
+        boxEReceivemails: Number(cells[boxEReceiveIndex] ?? 0),
+        boxIReceivemails: Number(cells[boxIReceiveIndex] ?? 0),
+        boxJReceivemails: Number(cells[boxJReceiveIndex] ?? 0),
+        boxMReceivemails: Number(cells[boxMReceiveIndex] ?? 0),
+        boxQReceivemails: Number(cells[boxQReceiveIndex] ?? 0),
       }))
-      .filter((row) => Number.isFinite(row.receivemails)
-        && Number.isFinite(row.mktReceivemails)
-        && Number.isFinite(row.grossDau)
-        && Number.isFinite(row.boxAReceivemails)
-        && Number.isFinite(row.boxBReceivemails)
-        && Number.isFinite(row.boxCReceivemails)
-        && Number.isFinite(row.boxEReceivemails)
-        && Number.isFinite(row.boxIReceivemails)
-        && Number.isFinite(row.boxJReceivemails)
-        && Number.isFinite(row.boxMReceivemails)
-        && Number.isFinite(row.boxQReceivemails));
+      .filter((row) => Number.isFinite(row.receivemails) && Number.isFinite(row.grossDau));
 
     if (values.length) {
       const matchingRows = values.filter((row) => matchesSourceHour(row.datetime, source));
