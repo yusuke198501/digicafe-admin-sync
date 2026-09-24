@@ -322,6 +322,8 @@ async function fetchArchiveMetrics(client, source) {
     payload.set(name, input.is('textarea') ? input.text() : (input.attr('value') ?? ''));
   });
   payload.set('queryval', sql);
+  // phpLiteAdmin distinguishes a form display from execution by the submit name.
+  payload.set('query', 'Go');
   const action = new URL(form.attr('action') || PHPLITEADMIN_SQL_URL, PHPLITEADMIN_SQL_URL).toString();
   const response = await fetchWithRetry('phpLiteAdmin SQL query', () => client.post(action, payload, {
     headers: { ...REQUEST_HEADERS, 'Content-Type': 'application/x-www-form-urlencoded' },
