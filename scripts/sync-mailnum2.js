@@ -478,9 +478,10 @@ function locateTargetRow(values, date, hour, sheetName) {
     && columns.some((column) => text(column).startsWith('時間/')));
   if (timeHeaderIndex < 0) throw new Error(`The time table was not found below the ${date.label} DC block.`);
 
+  // 時間はA列。集計値にも「9」「12」などが含まれるため、行全体は検索しない。
   const rowIndex = values.findIndex((columns, index) => index > timeHeaderIndex
     && index < timeHeaderIndex + 10
-    && columns.some((column) => text(column) === String(hour)));
+    && text(columns[0]) === String(hour));
   if (rowIndex < 0) throw new Error(`${hour} o'clock row was not found in the ${date.label} DC block.`);
   return rowIndex + 1;
 }
@@ -494,9 +495,10 @@ function locateBoxTargetRow(values, date, hour, sheetName) {
     && columns.some((column) => text(column).startsWith('BOX別')));
   if (boxHeaderIndex < 0) throw new Error(`The BOX table was not found below the ${date.label} DC block.`);
 
+  // 時間はA列。BOXの集計値に同じ数値があっても別の行を選ばない。
   const rowIndex = values.findIndex((columns, index) => index > boxHeaderIndex
     && index < boxHeaderIndex + 10
-    && columns.some((column) => text(column) === String(hour)));
+    && text(columns[0]) === String(hour));
   if (rowIndex < 0) throw new Error(`${hour} o'clock row was not found in the ${date.label} BOX table.`);
   return rowIndex + 1;
 }
