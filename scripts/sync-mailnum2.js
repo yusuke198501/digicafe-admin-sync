@@ -452,21 +452,15 @@ function locateBoxTargetRow(values, date, hour, sheetName) {
   return rowIndex + 1;
 }
 
-function locateSendTargetRow(values, date, hour, sheetName) {
+function locateSendHeaderRow(values, date, sheetName) {
   const titleIndex = values.findIndex(([columnA, columnB]) => text(columnA).startsWith(date.label) && text(columnB) === 'DC');
   if (titleIndex < 0) throw new Error(`${date.label} DC block was not found in ${sheetName}.`);
 
   const sendHeaderIndex = values.findIndex((columns, index) => index > titleIndex
     && index < titleIndex + 50
-    && ['A', 'B', 'C', 'E', '全体'].every((label) => columns.some((column) => text(column) === label))
-    && columns.some((column) => text(column) === '送信数'));
-  if (sendHeaderIndex < 0) throw new Error(`The send table was not found below the ${date.label} DC block.`);
-
-  const rowIndex = values.findIndex((columns, index) => index > sendHeaderIndex
-    && index < sendHeaderIndex + 10
-    && columns.some((column) => text(column) === String(hour)));
-  if (rowIndex < 0) throw new Error(`${hour} o'clock row was not found in the ${date.label} DC send table.`);
-  return rowIndex + 1;
+    && columns.some((column) => text(column).startsWith('時間/')));
+  if (sendHeaderIndex < 0) throw new Error(`The time table was not found below the ${date.label} DC block.`);
+  return sendHeaderIndex + 1;
 }
 
 async function updateSheet(metrics, hour, date) {
@@ -483,7 +477,8 @@ async function updateSheet(metrics, hour, date) {
     const values = source.data.values ?? [];
     const row = locateTargetRow(values, date, hour, sheetName);
     const boxRow = locateBoxTargetRow(values, date, hour, sheetName);
-    const sendRow = locateSendTargetRow(values, date, hour, sheetName);
+    const sendHeaderRow = locateSendHeaderRow(values, date, sheetName);
+    const sendRow = row;
 
     await sheets.spreadsheets.values.batchUpdate({
       spreadsheetId,
@@ -501,6 +496,7 @@ async function updateSheet(metrics, hour, date) {
           { range: `'${sheetName}'!M${boxRow}`, values: [[metrics.boxJReceivemails]] },
           { range: `'${sheetName}'!O${boxRow}`, values: [[metrics.boxMReceivemails]] },
           { range: `'${sheetName}'!Q${boxRow}`, values: [[metrics.boxQReceivemails]] },
+          { range: `'${sheetName}'!K${sendHeaderRow}:P${sendHeaderRow}`, values: [['送信数', 'A', 'B', 'C', 'E', '全体']] },
           { range: `'${sheetName}'!L${sendRow}:P${sendRow}`, values: [[
             metrics.boxASend, metrics.boxBSend, metrics.boxCSend, metrics.boxESend, metrics.sendTotal,
           ]] },
