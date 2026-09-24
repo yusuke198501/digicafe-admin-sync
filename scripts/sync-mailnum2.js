@@ -6,6 +6,7 @@ import { google } from 'googleapis';
 
 const LOGIN_URL = 'https://log.digicafe.jp/partner/';
 const REPORT_URL = 'https://log.digicafe.jp/partner/mailnum_uf';
+const PHPLITEADMIN_URL = 'https://smlovely.chatlove.xyz/dc/admin/phpliteadmin.php?database=..%2Fdb.db&table=mailnum2&fulltexts=0&numRows=30&action=row_view';
 const SHEET_NAMES = ['目標＆振分'];
 const REQUEST_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140.0.0.0 Safari/537.36',
@@ -374,41 +375,31 @@ function loginAccountSend(html, date) {
   return metricNumber(data[accountIndex], '全体 / やり取り送信');
 }
 
-function reportMetrics(html, date) {
+function cumulativeHourlyMetric(rows, header, hour) {
+  const headerIndex = rows[0].map(text).indexOf(text(header));
+  if (headerIndex < 0) throw new Error(`フォルダ別/時間毎の「${header}」が見つかりません。`);
+
+  return rows.slice(1)
+    .filter((row) => {
+      const matched = text(row[0]).match(/^(\d+)時$/);
+      return matched && Number(matched[1]) < hour;
+    })
+    .reduce((total, row) => total + metricNumber(row[headerIndex], header), 0);
+}
+
+function reportMetrics(html, date, hour) {
   const $ = cheerio.load(html);
-  const overallTable = $('table').toArray().find((table) => text($(table).find('tr').first().text()) === '全体受信データ');
-  if (!overallTable) throw new Error('全体受信データの表が見つかりません。');
-  const overallRows = reportRows($, overallTable);
-  const overallIndex = overallRows[1]?.map(text).indexOf('メール総数');
-  if (overallIndex === undefined || overallIndex < 0 || !overallRows[2]) throw new Error('全体受信データの「メール総数」が見つかりません。');
-
-  const folderRows = reportRows($, reportTable($, 'UF_MKT系データ(フォルダ別/日毎)'));
-  const dauRows = reportRows($, reportTable($, 'UF_MKT系データ(フォルダ別DAU/日毎)'));
-  const dauIndex = dauRows[0].map(text).indexOf('DAU(グロス)');
-  const dauData = dauRows.find((row) => text(row[0]) === date.display);
-  if (dauIndex < 0 || !dauData) throw new Error(`DAU（グロス）または ${date.display} の行が見つかりません。`);
-
+  const hourlyRows = reportRows($, reportTable($, 'UF_MKT系データ(フォルダ別/時間毎)'));
   return {
-    receivemails: metricNumber(overallRows[2][overallIndex], 'メール総数'),
-    mktReceivemails: folderReceive(folderRows, date, '受信合計'),
-    grossDau: metricNumber(dauData[dauIndex], 'DAU（グロス）'),
-    boxAReceivemails: folderReceive(folderRows, date, 'A受信'),
-    boxBReceivemails: folderReceive(folderRows, date, 'B受信'),
-    boxCReceivemails: folderReceive(folderRows, date, 'C受信'),
-    boxEReceivemails: folderReceive(folderRows, date, 'E受信'),
-    boxIReceivemails: folderReceive(folderRows, date, 'I受信'),
-    boxJReceivemails: folderReceive(folderRows, date, 'J受信'),
-    boxMReceivemails: folderReceive(folderRows, date, 'M受信'),
-    boxQReceivemails: folderReceive(folderRows, date, 'Q受信'),
-    sendTotal: loginAccountSend(html, date),
-    boxASend: folderReceive(folderRows, date, 'Aやり取り'),
-    boxBSend: folderReceive(folderRows, date, 'Bやり取り'),
-    boxCSend: folderReceive(folderRows, date, 'Cやり取り'),
-    boxESend: folderReceive(folderRows, date, 'Eやり取り'),
+    sendTotal: cumulativeHourlyMetric(hourlyRows, 'やり取り送信', hour),
+    boxASend: cumulativeHourlyMetric(hourlyRows, 'Aやり取り', hour),
+    boxBSend: cumulativeHourlyMetric(hourlyRows, 'Bやり取り', hour),
+    boxCSend: cumulativeHourlyMetric(hourlyRows, 'Cやり取り', hour),
+    boxESend: cumulativeHourlyMetric(hourlyRows, 'Eやり取り', hour),
   };
 }
 
-async function fetchReportMetrics(date) {
+async function fetchReportMetrics(date, hour) {
   const client = await loginToReport();
   const query = new URLSearchParams({
     sex: '1', sort: 'times', mail_start: date.iso, mail_end: date.iso,
@@ -417,7 +408,7 @@ async function fetchReportMetrics(date) {
   });
   const response = await client.get(`${REPORT_URL}?${query}`, { headers: REQUEST_HEADERS });
   if (response.status !== 200) throw new Error(`管理画面データの取得に失敗しました（HTTP ${response.status}）。`);
-  return reportMetrics(response.data, date);
+  return reportMetrics(response.data, date, hour);
 }
 
 function locateTargetRow(values, date, hour, sheetName) {
@@ -511,7 +502,10 @@ async function updateSheet(metrics, hour, date) {
 async function main() {
   const hour = reportHour();
   const date = reportDate(hour);
-  const metrics = await fetchReportMetrics(date);
+  const archiveClient = wrapper(axios.create({ jar: new CookieJar(), maxRedirects: 5, validateStatus: () => true }));
+  const receiveMetrics = await fetchMetricsWithRetry(archiveClient, PHPLITEADMIN_URL, sourceTimestamp(date, hour));
+  const sendMetrics = await fetchReportMetrics(date, hour);
+  const metrics = { ...receiveMetrics, ...sendMetrics };
   const updatedSheets = await updateSheet(metrics, hour, date);
   const destination = updatedSheets.map(({ sheetName, row, boxRow, sendRow }) => `${sheetName}: row ${row}, box row ${boxRow}, send row ${sendRow}`).join('; ');
   console.log(`${date.label} ${hour}:00 -> ${destination}; all_receive=${metrics.receivemails}, uf_receive=${metrics.mktReceivemails}, gross_dau=${metrics.grossDau}, send_a=${metrics.boxASend}, send_b=${metrics.boxBSend}, send_c=${metrics.boxCSend}, send_e=${metrics.boxESend}, send_total=${metrics.sendTotal}; source=${date.display}`);

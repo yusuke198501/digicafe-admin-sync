@@ -52,5 +52,6 @@ jobs:
           REPORT_HOUR: ${{ inputs.report_hour || github.event.inputs.report_hour }}
           LOG_ACCOUNT: ${{ secrets.LOG_ACCOUNT }}
           LOG_PASSWORD: ${{ secrets.LOG_PASSWORD }}
+          PHPLITEADMIN_PASSWORD: ${{ secrets.PHPLITEADMIN_PASSWORD }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           SPREADSHEET_ID: ${{ secrets.MAILNUM2_SPREADSHEET_ID }}
