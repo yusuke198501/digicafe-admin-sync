@@ -7,7 +7,7 @@ import { CookieJar } from 'tough-cookie';
 const SPREADSHEET_ID = process.env.PREVIOUS_RESULTS_SPREADSHEET_ID
   || '11Zoev9Sptv3x6kxx00i8BoVk8jaWPNcKiuJ_oh_xde8';
 const SHEET_NAME = '目標＆振分';
-const ID_MAP_SHEET = 'DCアカウント対応表';
+const ID_MAP_SHEET_CANDIDATES = ['マケ画面アカウント対応表', 'DCアカウント対応表', '名前_id対応表'];
 const SKIP_NAMES = new Set(['佐藤由加里', '吉村祐輔']);
 const LOGIN_URL = 'https://log.digicafe.jp/partner/';
 const REPORT_URL = 'https://log.digicafe.jp/partner/mailnum_uf';
@@ -57,9 +57,18 @@ async function sheetsClient() {
 }
 
 async function findTargets(sheets, reportDay) {
+  const metadata = await sheets.spreadsheets.get({
+    spreadsheetId: SPREADSHEET_ID,
+    fields: 'sheets.properties(title)',
+  });
+  const normalizeSheetName = (value) => String(value ?? '').replace(/[\s_]/g, '');
+  const sheetTitles = (metadata.data.sheets ?? []).map((sheet) => sheet.properties?.title).filter(Boolean);
+  const idMapSheet = sheetTitles.find((title) => ID_MAP_SHEET_CANDIDATES
+    .some((candidate) => normalizeSheetName(candidate) === normalizeSheetName(title)));
+  if (!idMapSheet) throw new Error(`名前・ID対応表が見つかりません。確認済みタブ: ${sheetTitles.join(', ')}`);
   const [sheetResponse, idResponse] = await Promise.all([
     sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: `'${SHEET_NAME}'!A1:BZ6000` }),
-    sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: `'${ID_MAP_SHEET}'!A:B` }),
+    sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: `'${idMapSheet}'!A:B` }),
   ]);
   const rows = sheetResponse.data.values ?? [];
   const nameToId = new Map((idResponse.data.values ?? []).slice(1)
