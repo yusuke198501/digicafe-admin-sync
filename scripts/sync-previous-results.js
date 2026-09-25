@@ -7,7 +7,7 @@ import { CookieJar } from 'tough-cookie';
 const SPREADSHEET_ID = process.env.PREVIOUS_RESULTS_SPREADSHEET_ID
   || '11Zoev9Sptv3x6kxx00i8BoVk8jaWPNcKiuJ_oh_xde8';
 const SHEET_NAME = '目標＆振分';
-const ID_MAP_SHEET = '名前_id対応表';
+const ID_MAP_SHEET = 'DCアカウント対応表';
 const SKIP_NAMES = new Set(['佐藤由加里', '吉村祐輔']);
 const LOGIN_URL = 'https://log.digicafe.jp/partner/';
 const REPORT_URL = 'https://log.digicafe.jp/partner/mailnum_uf';
