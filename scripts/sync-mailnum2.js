@@ -52,13 +52,13 @@ function reportHour() {
 
   // Keep the intended target when a GitHub cron job starts late.
   const scheduledHours = new Map([
-    ['15 0 * * *', 9],
-    ['15 1 * * *', 10],
-    ['15 4 * * *', 13],
-    ['15 8 * * *', 17],
-    ['15 12 * * *', 21],
-    ['15 15 * * *', 24],
-    ['15 18 * * *', 27],
+    ['5 0 * * *', 9],
+    ['5 1 * * *', 10],
+    ['5 4 * * *', 13],
+    ['5 8 * * *', 17],
+    ['5 12 * * *', 21],
+    ['5 15 * * *', 24],
+    ['5 18 * * *', 27],
   ]);
   const scheduledHour = scheduledHours.get(process.env.GITHUB_EVENT_SCHEDULE);
   if (scheduledHour) return scheduledHour;
