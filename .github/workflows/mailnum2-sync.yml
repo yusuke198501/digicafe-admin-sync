@@ -2,19 +2,19 @@ name: mailnum2 sync
 
 on:
   schedule:
-    # UTC。日本時間の 9, 12, 15, 18, 21, 24, 27 時の各15分頃。
+    # UTC。日本時間の 9, 10, 13, 17, 21, 24, 27 時の各15分頃。
     - cron: '15 0 * * *'
-    - cron: '15 3 * * *'
-    - cron: '15 6 * * *'
-    - cron: '15 9 * * *'
+    - cron: '15 1 * * *'
+    - cron: '15 4 * * *'
+    - cron: '15 8 * * *'
     - cron: '15 12 * * *'
     - cron: '15 15 * * *'
     - cron: '15 18 * * *'
     # 予備実行。同じ時間帯の行を最新値で上書きし、定刻起動の欠落に備える。
     - cron: '45 0 * * *'
-    - cron: '45 3 * * *'
-    - cron: '45 6 * * *'
-    - cron: '45 9 * * *'
+    - cron: '45 1 * * *'
+    - cron: '45 4 * * *'
+    - cron: '45 8 * * *'
     - cron: '45 12 * * *'
     - cron: '45 15 * * *'
     - cron: '45 18 * * *'
@@ -24,7 +24,7 @@ on:
         description: Target reporting hour (leave blank when started by Cloud Scheduler)
         required: false
         type: choice
-        options: ['9', '12', '15', '18', '20', '21', '22', '23', '24', '27']
+        options: ['9', '10', '13', '17', '21', '24', '27']
 permissions:
   contents: read
 

@@ -9,6 +9,9 @@ const REPORT_URL = 'https://log.digicafe.jp/partner/mailnum_uf';
 const PHPLITEADMIN_URL = 'https://smlovely.chatlove.xyz/dc/admin/phpliteadmin.php?database=..%2Fdb.db&table=mailnum2&fulltexts=0&numRows=30&action=row_view';
 const PHPLITEADMIN_SQL_URL = 'https://smlovely.chatlove.xyz/dc/admin/phpliteadmin.php?database=..%2Fdb.db&table=mailnum2&fulltexts=0&numRows=30&action=table_sql';
 const SHEET_NAMES = ['目標＆振分'];
+const REPORT_HOURS = [9, 10, 13, 17, 21, 24, 27];
+// 古い時刻表を複製して作られた日付ブロックでも、初回更新時に新しい時刻へ置換する。
+const LEGACY_TIME_BY_REPORT_HOUR = new Map([[10, 12], [13, 15], [17, 18]]);
 const REQUEST_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140.0.0.0 Safari/537.36',
   Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -43,16 +46,16 @@ function jstDateParts() {
 function reportHour() {
   if (process.env.REPORT_HOUR) {
     const hour = Number(process.env.REPORT_HOUR);
-    if ([9, 12, 15, 18, 20, 21, 22, 23, 24, 27].includes(hour)) return hour;
-    throw new Error('REPORT_HOUR must be one of: 9, 12, 15, 18, 20, 21, 22, 23, 24, 27.');
+    if (REPORT_HOURS.includes(hour)) return hour;
+    throw new Error(`REPORT_HOUR must be one of: ${REPORT_HOURS.join(', ')}.`);
   }
 
   // Keep the intended target when a GitHub cron job starts late.
   const scheduledHours = new Map([
     ['15 0 * * *', 9],
-    ['15 3 * * *', 12],
-    ['15 6 * * *', 15],
-    ['15 9 * * *', 18],
+    ['15 1 * * *', 10],
+    ['15 4 * * *', 13],
+    ['15 8 * * *', 17],
     ['15 12 * * *', 21],
     ['15 15 * * *', 24],
     ['15 18 * * *', 27],
@@ -82,9 +85,9 @@ function reportHour() {
       const slotForFreshSourceHour = new Map([
         [2, 27],
         [8, 9],
-        [11, 12],
-        [14, 15],
-        [17, 18],
+        [9, 10],
+        [12, 13],
+        [16, 17],
         [20, 21],
         [23, 24],
       ]);
@@ -94,10 +97,10 @@ function reportHour() {
 
     if (currentHour < 3) return 24;
     if (currentHour < 9) return 27;
-    if (currentHour < 12) return 9;
-    if (currentHour < 15) return 12;
-    if (currentHour < 18) return 15;
-    if (currentHour < 21) return 18;
+    if (currentHour < 10) return 9;
+    if (currentHour < 13) return 10;
+    if (currentHour < 17) return 13;
+    if (currentHour < 21) return 17;
     return 21;
   }
 
@@ -479,11 +482,19 @@ function locateTargetRow(values, date, hour, sheetName) {
   if (timeHeaderIndex < 0) throw new Error(`The time table was not found below the ${date.label} DC block.`);
 
   // 時間はA列。集計値にも「9」「12」などが含まれるため、行全体は検索しない。
-  const rowIndex = values.findIndex((columns, index) => index > timeHeaderIndex
+  let rowIndex = values.findIndex((columns, index) => index > timeHeaderIndex
     && index < timeHeaderIndex + 10
     && text(columns[0]) === String(hour));
+  let replaceTimeLabel = false;
+  if (rowIndex < 0 && LEGACY_TIME_BY_REPORT_HOUR.has(hour)) {
+    const legacyHour = LEGACY_TIME_BY_REPORT_HOUR.get(hour);
+    rowIndex = values.findIndex((columns, index) => index > timeHeaderIndex
+      && index < timeHeaderIndex + 10
+      && text(columns[0]) === String(legacyHour));
+    replaceTimeLabel = rowIndex >= 0;
+  }
   if (rowIndex < 0) throw new Error(`${hour} o'clock row was not found in the ${date.label} DC block.`);
-  return rowIndex + 1;
+  return { row: rowIndex + 1, replaceTimeLabel };
 }
 
 function locateBoxTargetRow(values, date, hour, sheetName) {
@@ -496,11 +507,19 @@ function locateBoxTargetRow(values, date, hour, sheetName) {
   if (boxHeaderIndex < 0) throw new Error(`The BOX table was not found below the ${date.label} DC block.`);
 
   // 時間はA列。BOXの集計値に同じ数値があっても別の行を選ばない。
-  const rowIndex = values.findIndex((columns, index) => index > boxHeaderIndex
+  let rowIndex = values.findIndex((columns, index) => index > boxHeaderIndex
     && index < boxHeaderIndex + 10
     && text(columns[0]) === String(hour));
+  let replaceTimeLabel = false;
+  if (rowIndex < 0 && LEGACY_TIME_BY_REPORT_HOUR.has(hour)) {
+    const legacyHour = LEGACY_TIME_BY_REPORT_HOUR.get(hour);
+    rowIndex = values.findIndex((columns, index) => index > boxHeaderIndex
+      && index < boxHeaderIndex + 10
+      && text(columns[0]) === String(legacyHour));
+    replaceTimeLabel = rowIndex >= 0;
+  }
   if (rowIndex < 0) throw new Error(`${hour} o'clock row was not found in the ${date.label} BOX table.`);
-  return rowIndex + 1;
+  return { row: rowIndex + 1, replaceTimeLabel };
 }
 
 function locateSendHeaderRow(values, date, sheetName) {
@@ -526,8 +545,10 @@ async function updateSheet(metrics, hour, date) {
     const range = `'${sheetName}'!A:Q`;
     const source = await sheets.spreadsheets.values.get({ spreadsheetId, range });
     const values = source.data.values ?? [];
-    const row = locateTargetRow(values, date, hour, sheetName);
-    const boxRow = locateBoxTargetRow(values, date, hour, sheetName);
+    const target = locateTargetRow(values, date, hour, sheetName);
+    const boxTarget = locateBoxTargetRow(values, date, hour, sheetName);
+    const row = target.row;
+    const boxRow = boxTarget.row;
     const sendHeaderRow = locateSendHeaderRow(values, date, sheetName);
     const sendRow = row;
 
@@ -536,6 +557,8 @@ async function updateSheet(metrics, hour, date) {
       requestBody: {
         valueInputOption: 'RAW',
         data: [
+          ...(target.replaceTimeLabel ? [{ range: `'${sheetName}'!A${row}`, values: [[hour]] }] : []),
+          ...(boxTarget.replaceTimeLabel ? [{ range: `'${sheetName}'!A${boxRow}`, values: [[hour]] }] : []),
           { range: `'${sheetName}'!C${row}`, values: [[metrics.receivemails]] },
           { range: `'${sheetName}'!E${row}`, values: [[metrics.mktReceivemails]] },
           { range: `'${sheetName}'!I${row}`, values: [[metrics.grossDau]] },
@@ -562,13 +585,11 @@ async function updateSheet(metrics, hour, date) {
 async function main() {
   const hour = reportHour();
   const date = reportDate(hour);
-  // 臨時の20時集計は21時行へ、22時・23時集計は24時行へ記録する。
-  const targetHour = hour === 20 ? 21 : ([22, 23].includes(hour) ? 24 : hour);
   const archiveClient = wrapper(axios.create({ jar: new CookieJar(), maxRedirects: 5, validateStatus: () => true }));
   const receiveMetrics = await fetchArchiveMetrics(archiveClient, sourceTimestamp(date, hour));
   const sendMetrics = await fetchReportMetrics(date, hour);
   const metrics = { ...receiveMetrics, ...sendMetrics };
-  const updatedSheets = await updateSheet(metrics, targetHour, date);
+  const updatedSheets = await updateSheet(metrics, hour, date);
   const destination = updatedSheets.map(({ sheetName, row, boxRow, sendRow }) => `${sheetName}: row ${row}, box row ${boxRow}, send row ${sendRow}`).join('; ');
   console.log(`${date.label} ${hour}:00 -> ${destination}; all_receive=${metrics.receivemails}, uf_receive=${metrics.mktReceivemails}, gross_dau=${metrics.grossDau}, send_a=${metrics.boxASend}, send_b=${metrics.boxBSend}, send_c=${metrics.boxCSend}, send_e=${metrics.boxESend}, send_total=${metrics.sendTotal}; source=${date.display}`);
 }
