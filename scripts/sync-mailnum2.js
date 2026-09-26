@@ -10,6 +10,7 @@ const PHPLITEADMIN_URL = 'https://smlovely.chatlove.xyz/dc/admin/phpliteadmin.ph
 const PHPLITEADMIN_SQL_URL = 'https://smlovely.chatlove.xyz/dc/admin/phpliteadmin.php?database=..%2Fdb.db&table=mailnum2&fulltexts=0&numRows=30&action=table_sql';
 const SHEET_NAMES = ['目標＆振分'];
 const REPORT_HOURS = [9, 10, 13, 17, 21, 24, 27];
+const ID_MAP_SHEET_CANDIDATES = ['マケ画面アカウント対応表', 'DCアカウント対応表', '名前_id対応表'];
 // 古い時刻表を複製して作られた日付ブロックでも、初回更新時に新しい時刻へ置換する。
 const LEGACY_TIME_BY_REPORT_HOUR = new Map([[10, 12], [13, 15], [17, 18]]);
 const REQUEST_HEADERS = {
@@ -386,23 +387,48 @@ function expandedTableRows($, table) {
     }));
 }
 
-function loginAccountSend(html, date) {
+function loginAccountDailyStats(html, date) {
   const $ = cheerio.load(html);
   const rows = expandedTableRows($, reportTable($, 'UF_MKT系データ(ログインアカウント別/日毎)'));
   const accountHeader = rows.find((row) => row.some((value) => text(value) === '全体'));
   const metricHeader = rows.find((row) => text(row[0]) === 'やり取り送信');
   const data = rows.find((row) => text(row[0]) === date.display);
   if (!accountHeader || !metricHeader || !data) {
-    throw new Error(`ログインアカウント別/日毎の全体送信または ${date.display} の行が見つかりません。`);
+    throw new Error(`ログインアカウント別/日毎の ${date.display} の行が見つかりません。`);
   }
-  const accountIndex = accountHeader.findIndex((value) => text(value) === '全体');
-  // The account header has a leading blank date column while the metric header
-  // starts directly with the seven metrics, so the two headers are offset by one.
-  const metricIndex = metricHeader.length === accountHeader.length - 1 ? accountIndex - 1 : accountIndex;
-  if (accountIndex < 0 || text(metricHeader[metricIndex]) !== 'やり取り送信') {
-    throw new Error('ログインアカウント別/日毎の「全体 / やり取り送信」が見つかりません。');
+
+  const firstAccountIndex = accountHeader.findIndex((value) => text(value) === '全体');
+  // アカウント名は、配下の7項目分だけ colspan で繰り返されている。
+  // 連続重複を除いたものをアカウント一覧として扱う。
+  const accountCells = accountHeader.slice(firstAccountIndex);
+  const accounts = accountCells.filter((account, index) => index === 0
+    || text(account) !== text(accountCells[index - 1]));
+  const values = data.slice(1);
+  if (firstAccountIndex < 0 || !accounts.length || values.length % accounts.length !== 0) {
+    throw new Error('ログインアカウント別/日毎のアカウント列構成を判定できません。');
   }
-  return metricNumber(data[accountIndex], '全体 / やり取り送信');
+  const groupWidth = values.length / accounts.length;
+  if (groupWidth !== 7 || text(metricHeader[0]) !== 'やり取り送信') {
+    throw new Error('ログインアカウント別/日毎の7項目構成を判定できません。');
+  }
+  // 項目順: やり取り送信、やり取り受信、個別送信、個別受信、
+  // 同報配信キャラ数、同報配信、同報受信。
+  const [interactionIndex, individualIndex, broadcastIndex] = [0, 2, 5];
+
+  return new Map(accounts.map((account, index) => {
+    const offset = index * groupWidth;
+    return [text(account), {
+      interaction: metricNumber(values[offset + interactionIndex], `${account} / やり取り送信`),
+      individual: metricNumber(values[offset + individualIndex], `${account} / 個別送信`),
+      broadcast: metricNumber(values[offset + broadcastIndex], `${account} / 同報配信`),
+    }];
+  }));
+}
+
+function loginAccountSend(html, date) {
+  const all = loginAccountDailyStats(html, date).get('全体');
+  if (!all) throw new Error('ログインアカウント別/日毎の「全体 / やり取り送信」が見つかりません。');
+  return all.interaction;
 }
 
 function cumulativeHourlyMetric(rows, header, hour) {
@@ -457,6 +483,7 @@ function reportMetrics(html, date, hour) {
     boxBSend: cumulativeHourlyMetric(hourlyRows, 'Bやり取り', hour),
     boxCSend: cumulativeHourlyMetric(hourlyRows, 'Cやり取り', hour),
     boxESend: cumulativeHourlyMetric(hourlyRows, 'Eやり取り', hour),
+    accountSendStats: loginAccountDailyStats(html, date),
   };
 }
 
@@ -533,6 +560,47 @@ function locateSendHeaderRow(values, date, sheetName) {
   return sendHeaderIndex + 1;
 }
 
+function normalizeSheetName(value) {
+  return String(value ?? '').replace(/[\s_]/g, '');
+}
+
+async function loadNameToId(sheets, spreadsheetId) {
+  const metadata = await sheets.spreadsheets.get({
+    spreadsheetId,
+    fields: 'sheets.properties(title)',
+  });
+  const titles = (metadata.data.sheets ?? []).map((sheet) => sheet.properties?.title).filter(Boolean);
+  const idMapSheet = titles.find((title) => ID_MAP_SHEET_CANDIDATES
+    .some((candidate) => normalizeSheetName(candidate) === normalizeSheetName(title)));
+  if (!idMapSheet) throw new Error(`名前・ID対応表が見つかりません。確認済みタブ: ${titles.join(', ')}`);
+
+  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: `'${idMapSheet}'!A:B` });
+  return new Map((response.data.values ?? []).slice(1)
+    .filter((row) => row[0] && row[1])
+    .map((row) => [text(row[1]), text(row[0])]));
+}
+
+function locateTodayResultTargets(values, date, nameToId, sheetName) {
+  const titleIndex = values.findIndex(([columnA, columnB]) => text(columnA).startsWith(date.label) && text(columnB) === 'DC');
+  if (titleIndex < 0) throw new Error(`${date.label} DC block was not found in ${sheetName}.`);
+  const nextBlockIndex = values.findIndex((row, index) => index > titleIndex
+    && /^\d{1,2}\/\d{1,2}/.test(text(row[0]))
+    && ['DC', 'feliz'].includes(text(row[1])));
+  const endIndex = nextBlockIndex < 0 ? values.length : nextBlockIndex;
+  const targets = [];
+  for (let index = titleIndex + 1; index < endIndex; index += 1) {
+    // 本日結果の担当者名は、各日のDCブロック内で対応表に一致する名前として
+    // 特定する。これにより結合セルの見出しが空として返っても影響を受けない。
+    const nameColumn = values[index].findIndex((cell) => nameToId.has(text(cell)));
+    // 右側の本日結果エリアだけを対象にし、シフト表内の同名は除外する。
+    if (nameColumn < 25) continue;
+    const name = text(values[index][nameColumn]);
+    targets.push({ row: index + 1, name, accountId: nameToId.get(name) });
+  }
+  if (!targets.length) throw new Error(`${date.label} DC block の本日結果に更新対象者が見つかりません。`);
+  return targets;
+}
+
 async function updateSheet(metrics, hour, date) {
   const auth = new google.auth.GoogleAuth({
     credentials: JSON.parse(required('GOOGLE_SERVICE_ACCOUNT_JSON')),
@@ -540,9 +608,10 @@ async function updateSheet(metrics, hour, date) {
   });
   const sheets = google.sheets({ version: 'v4', auth });
   const spreadsheetId = required('SPREADSHEET_ID');
+  const nameToId = await loadNameToId(sheets, spreadsheetId);
   const results = [];
   for (const sheetName of SHEET_NAMES) {
-    const range = `'${sheetName}'!A:Q`;
+    const range = `'${sheetName}'!A:AJ`;
     const source = await sheets.spreadsheets.values.get({ spreadsheetId, range });
     const values = source.data.values ?? [];
     const target = locateTargetRow(values, date, hour, sheetName);
@@ -551,6 +620,15 @@ async function updateSheet(metrics, hour, date) {
     const boxRow = boxTarget.row;
     const sendHeaderRow = locateSendHeaderRow(values, date, sheetName);
     const sendRow = row;
+    const todayResultTargets = locateTodayResultTargets(values, date, nameToId, sheetName);
+    const todayResultWrites = todayResultTargets.map((target) => {
+      const stats = metrics.accountSendStats.get(target.accountId);
+      if (!stats) throw new Error(`${target.name} (${target.accountId}) の本日送信実績が管理画面にありません。`);
+      return {
+        range: `'${sheetName}'!AG${target.row}:AI${target.row}`,
+        values: [[stats.interaction, stats.individual, stats.broadcast]],
+      };
+    });
 
     await sheets.spreadsheets.values.batchUpdate({
       spreadsheetId,
@@ -574,10 +652,11 @@ async function updateSheet(metrics, hour, date) {
           { range: `'${sheetName}'!L${sendRow}:P${sendRow}`, values: [[
             metrics.boxASend, metrics.boxBSend, metrics.boxCSend, metrics.boxESend, metrics.sendTotal,
           ]] },
+          ...todayResultWrites,
         ],
       },
     });
-    results.push({ sheetName, row, boxRow, sendRow });
+    results.push({ sheetName, row, boxRow, sendRow, todayResultCount: todayResultTargets.length });
   }
   return results;
 }
@@ -590,7 +669,7 @@ async function main() {
   const sendMetrics = await fetchReportMetrics(date, hour);
   const metrics = { ...receiveMetrics, ...sendMetrics };
   const updatedSheets = await updateSheet(metrics, hour, date);
-  const destination = updatedSheets.map(({ sheetName, row, boxRow, sendRow }) => `${sheetName}: row ${row}, box row ${boxRow}, send row ${sendRow}`).join('; ');
+  const destination = updatedSheets.map(({ sheetName, row, boxRow, sendRow, todayResultCount }) => `${sheetName}: row ${row}, box row ${boxRow}, send row ${sendRow}, today results ${todayResultCount}`).join('; ');
   console.log(`${date.label} ${hour}:00 -> ${destination}; all_receive=${metrics.receivemails}, uf_receive=${metrics.mktReceivemails}, gross_dau=${metrics.grossDau}, send_a=${metrics.boxASend}, send_b=${metrics.boxBSend}, send_c=${metrics.boxCSend}, send_e=${metrics.boxESend}, send_total=${metrics.sendTotal}; source=${date.display}`);
 }
 
