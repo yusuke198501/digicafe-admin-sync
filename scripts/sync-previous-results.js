@@ -175,7 +175,7 @@ async function main() {
     if (!stats) throw new Error(`${target.name} (${target.accountId}) の実績が管理画面にありません。`);
     return [
       { range: `'${SHEET_NAME}'!T${target.row}:U${target.row}`, values: [[stats[0], stats[1]]] },
-      { range: `'${SHEET_NAME}'!BZ${target.row}`, values: [[shortDate(target.prior)]] },
+      { range: `'${SHEET_NAME}'!CG${target.row}`, values: [[shortDate(target.prior)]] },
     ];
   });
   await sheets.spreadsheets.values.batchUpdate({
