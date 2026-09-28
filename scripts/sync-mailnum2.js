@@ -510,7 +510,7 @@ function reportMetrics(html, date, hour) {
   const hourlyRows = reportRows($, reportTable($, 'UF_MKT系データ(フォルダ別/時間毎)'));
   return {
     // 補助サイトではなく、指定済みの管理画面レポートを唯一の取得元とする。
-    receivemails: dailyReportMetric($, '全体受信データ', date, ['メール総数']),
+    receivemails: dailyReportMetric($, '全体送受信データ', date, ['メール総数']),
     grossDau: dailyReportMetric($, 'UF_MKT系データ(フォルダ別DAU/日毎)', date, ['DAU（グロス）', 'DAU(グロス)']),
     mktReceivemails: cumulativeUfReceive(html, hour),
     boxAReceivemails: cumulativeHourlyMetric(hourlyRows, 'A受信', hour),
