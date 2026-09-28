@@ -335,6 +335,26 @@ async function fetchArchiveMetrics(client, source) {
   return latestMetrics(response.data, source);
 }
 
+// phpLiteAdmin はまれに、ログイン済みでも一覧・SQL画面の代わりに
+// 初期画面を返すことがある。その場合は新しいセッションで取得し直す。
+async function fetchArchiveMetricsWithRetry(source) {
+  const retries = 3;
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    const client = wrapper(axios.create({ jar: new CookieJar(), maxRedirects: 5, validateStatus: () => true }));
+    try {
+      return await fetchArchiveMetrics(client, source);
+    } catch (error) {
+      const temporaryPage = error instanceof Error
+        && error.message.includes('mailnum2 table or the required columns were not found.');
+      if (!temporaryPage || attempt === retries) throw error;
+      const delay = (attempt + 1) * 5000;
+      console.warn(`phpLiteAdmin returned an initial page. Retrying with a new session in ${delay / 1000} seconds (${attempt + 1}/${retries}).`);
+      await wait(delay);
+    }
+  }
+  throw new Error('mailnum2 metrics could not be retrieved.');
+}
+
 async function loginToReport() {
   const client = wrapper(axios.create({ jar: new CookieJar(), maxRedirects: 5, validateStatus: () => true }));
   await client.get(LOGIN_URL, { headers: REQUEST_HEADERS });
@@ -664,8 +684,7 @@ async function updateSheet(metrics, hour, date) {
 async function main() {
   const hour = reportHour();
   const date = reportDate(hour);
-  const archiveClient = wrapper(axios.create({ jar: new CookieJar(), maxRedirects: 5, validateStatus: () => true }));
-  const receiveMetrics = await fetchArchiveMetrics(archiveClient, sourceTimestamp(date, hour));
+  const receiveMetrics = await fetchArchiveMetricsWithRetry(sourceTimestamp(date, hour));
   const sendMetrics = await fetchReportMetrics(date, hour);
   const metrics = { ...receiveMetrics, ...sendMetrics };
   const updatedSheets = await updateSheet(metrics, hour, date);
