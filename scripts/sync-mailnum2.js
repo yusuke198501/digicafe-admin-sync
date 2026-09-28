@@ -523,9 +523,6 @@ function reportMetrics(html, date, hour) {
   const $ = cheerio.load(html);
   const hourlyRows = reportRows($, reportTable($, 'UF_MKT系データ(フォルダ別/時間毎)'));
   return {
-    // 補助サイトではなく、指定済みの管理画面レポートを唯一の取得元とする。
-    receivemails: summaryReportMetric($, '全体送受信データ', ['メール総数']),
-    grossDau: dailyReportMetric($, 'UF_MKT系データ(フォルダ別DAU/日毎)', date, ['DAU（グロス）', 'DAU(グロス)']),
     mktReceivemails: cumulativeUfReceive(html, hour),
     boxAReceivemails: cumulativeHourlyMetric(hourlyRows, 'A受信', hour),
     boxBReceivemails: cumulativeHourlyMetric(hourlyRows, 'B受信', hour),
@@ -721,7 +718,10 @@ async function updateSheet(metrics, hour, date) {
 async function main() {
   const hour = reportHour();
   const date = reportDate(hour);
-  const metrics = await fetchReportMetrics(date, hour);
+  const archiveClient = wrapper(axios.create({ jar: new CookieJar(), maxRedirects: 5, validateStatus: () => true }));
+  const receiveMetrics = await fetchArchiveMetrics(archiveClient, sourceTimestamp(date, hour));
+  const sendMetrics = await fetchReportMetrics(date, hour);
+  const metrics = { ...receiveMetrics, ...sendMetrics };
   const updatedSheets = await updateSheet(metrics, hour, date);
   const destination = updatedSheets.map(({ sheetName, row, boxRow, sendRow, todayResultCount }) => `${sheetName}: row ${row}, box row ${boxRow}, send row ${sendRow}, today results ${todayResultCount}`).join('; ');
   console.log(`${date.label} ${hour}:00 -> ${destination}; all_receive=${metrics.receivemails}, uf_receive=${metrics.mktReceivemails}, gross_dau=${metrics.grossDau}, send_a=${metrics.boxASend}, send_b=${metrics.boxBSend}, send_c=${metrics.boxCSend}, send_e=${metrics.boxESend}, send_total=${metrics.sendTotal}; source=${date.display}`);
