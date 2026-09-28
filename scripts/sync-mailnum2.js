@@ -377,7 +377,12 @@ function reportRows($, table) {
 function reportTable($, label) {
   const heading = $('h1,h2,h3,h4,h5,h6').toArray()
     .find((element) => text($(element).text()) === text(label));
-  if (!heading) throw new Error(`表題「${label}」が見つかりません。`);
+  if (!heading) {
+    const titles = $('h1,h2,h3,h4,h5,h6').toArray()
+      .map((element) => $(element).text().replace(/\s+/g, ' ').trim())
+      .filter(Boolean);
+    throw new Error(`表題「${label}」が見つかりません。検出表題: ${titles.join(' / ') || '(none)'}`);
+  }
   // 管理画面では表が table の直後ではなく、ラッパー要素内に置かれる場合がある。
   // そのため、見出しの後に続く要素の中も含めて最初の表を取得する。
   const following = $(heading).nextAll();
