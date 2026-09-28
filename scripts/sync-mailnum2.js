@@ -326,8 +326,10 @@ async function fetchArchiveMetrics(client, source) {
     payload.set(name, input.is('textarea') ? input.text() : (input.attr('value') ?? ''));
   });
   payload.set('queryval', sql);
-  // phpLiteAdmin distinguishes a form display from execution by the submit name.
-  payload.set('query', 'Go');
+  // phpLiteAdmin distinguishes a form display from execution by the submit button.
+  // ボタンの値は環境により変わるため、画面に返された値をそのまま使う。
+  const submit = form.find('input[type="submit"][name]').first();
+  payload.set(submit.attr('name') ?? 'query', submit.attr('value') ?? 'Go');
   const action = new URL(form.attr('action') || PHPLITEADMIN_SQL_URL, PHPLITEADMIN_SQL_URL).toString();
   const response = await fetchWithRetry('phpLiteAdmin SQL query', () => client.post(action, payload, {
     headers: { ...REQUEST_HEADERS, 'Content-Type': 'application/x-www-form-urlencoded' },
