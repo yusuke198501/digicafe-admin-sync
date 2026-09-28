@@ -411,7 +411,8 @@ function dailyReportMetric($, tableLabel, date, headers) {
   const headerRow = rows.find((row) => row.some((cell) => normalizedHeaders.includes(text(cell))));
   const dataRow = rows.find((row) => text(row[0]) === date.display);
   if (!headerRow || !dataRow) {
-    throw new Error(`${tableLabel} の ${date.display} の集計行または見出しが見つかりません。`);
+    const preview = rows.slice(0, 5).map((row) => row.slice(0, 12).join(',')).join(' | ');
+    throw new Error(`${tableLabel} の ${date.display} の集計行または見出しが見つかりません。内容: ${preview}`);
   }
   const index = headerRow.findIndex((cell) => normalizedHeaders.includes(text(cell)));
   if (index < 0) throw new Error(`${tableLabel} の ${headers.join(' / ')} が見つかりません。`);
