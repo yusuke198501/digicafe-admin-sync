@@ -419,6 +419,19 @@ function dailyReportMetric($, tableLabel, date, headers) {
   return metricNumber(dataRow[index], `${tableLabel} / ${headerRow[index]}`);
 }
 
+function summaryReportMetric($, tableLabel, headers) {
+  const rows = reportRows($, reportTable($, tableLabel));
+  const normalizedHeaders = headers.map(text);
+  const headerIndex = rows.findIndex((row) => row.some((cell) => normalizedHeaders.includes(text(cell))));
+  const dataRow = headerIndex < 0 ? null : rows.slice(headerIndex + 1)
+    .find((row) => row.some((cell) => text(cell)));
+  if (headerIndex < 0 || !dataRow) {
+    throw new Error(`${tableLabel} の ${headers.join(' / ')} の集計行が見つかりません。`);
+  }
+  const index = rows[headerIndex].findIndex((cell) => normalizedHeaders.includes(text(cell)));
+  return metricNumber(dataRow[index], `${tableLabel} / ${rows[headerIndex][index]}`);
+}
+
 function expandedTableRows($, table) {
   return $(table).find('tr').toArray().map((row) => $(row).children('th,td').toArray()
     .flatMap((cell) => {
@@ -511,7 +524,7 @@ function reportMetrics(html, date, hour) {
   const hourlyRows = reportRows($, reportTable($, 'UF_MKT系データ(フォルダ別/時間毎)'));
   return {
     // 補助サイトではなく、指定済みの管理画面レポートを唯一の取得元とする。
-    receivemails: dailyReportMetric($, '全体送受信データ', date, ['メール総数']),
+    receivemails: summaryReportMetric($, '全体送受信データ', ['メール総数']),
     grossDau: dailyReportMetric($, 'UF_MKT系データ(フォルダ別DAU/日毎)', date, ['DAU（グロス）', 'DAU(グロス)']),
     mktReceivemails: cumulativeUfReceive(html, hour),
     boxAReceivemails: cumulativeHourlyMetric(hourlyRows, 'A受信', hour),
