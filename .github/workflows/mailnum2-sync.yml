@@ -10,14 +10,6 @@ on:
     - cron: '5 12 * * *'
     - cron: '5 15 * * *'
     - cron: '5 18 * * *'
-    # 予備実行。同じ時間帯の行を最新値で上書きし、定刻起動の欠落に備える。
-    - cron: '45 0 * * *'
-    - cron: '45 1 * * *'
-    - cron: '45 4 * * *'
-    - cron: '45 8 * * *'
-    - cron: '45 12 * * *'
-    - cron: '45 15 * * *'
-    - cron: '45 18 * * *'
   workflow_dispatch:
     inputs:
       report_hour:
