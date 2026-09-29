@@ -122,6 +122,18 @@ function reportDate(hour) {
   };
 }
 
+function todayReportDate() {
+  const { year, month, day } = jstDateParts();
+  return {
+    year,
+    month,
+    day,
+    label: `${month}/${day}`,
+    iso: `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
+    display: `${year}/${String(month).padStart(2, '0')}/${String(day).padStart(2, '0')}`,
+  };
+}
+
 const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 function isRetryableFetchError(error) {
@@ -560,6 +572,19 @@ async function fetchReportMetrics(date, hour) {
   return reportMetrics(response.data, date, hour);
 }
 
+// 本日結果は、時間別の集計表を待たずに日毎表の最新累計を更新する。
+async function fetchTodayResultStats(date) {
+  const client = await loginToReport();
+  const query = new URLSearchParams({
+    sex: '1', sort: 'times', mail_start: date.iso, mail_end: date.iso,
+    code: '', frm: '', created_at_start: date.iso, created_at_end: date.iso,
+    disp_type: '', folder_rcv_source: 'point', sum: '集計',
+  });
+  const response = await client.get(`${REPORT_URL}?${query}`, { headers: REQUEST_HEADERS });
+  if (response.status !== 200) throw new Error(`管理画面データの取得に失敗しました（HTTP ${response.status}）。`);
+  return loginAccountDailyStats(response.data, date);
+}
+
 function locateTargetRow(values, date, hour, sheetName) {
   const titleIndex = values.findIndex(([columnA, columnB]) => text(columnA).startsWith(date.label) && text(columnB) === 'DC');
   if (titleIndex < 0) throw new Error(`${date.label} DC block was not found in ${sheetName}.`);
@@ -722,7 +747,47 @@ async function updateSheet(metrics, hour, date) {
   return results;
 }
 
+async function updateTodayResults(accountSendStats, date) {
+  const auth = new google.auth.GoogleAuth({
+    credentials: JSON.parse(required('GOOGLE_SERVICE_ACCOUNT_JSON')),
+    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+  });
+  const sheets = google.sheets({ version: 'v4', auth });
+  const spreadsheetId = required('SPREADSHEET_ID');
+  const nameToId = await loadNameToId(sheets, spreadsheetId);
+  const results = [];
+
+  for (const sheetName of SHEET_NAMES) {
+    const source = await sheets.spreadsheets.values.get({ spreadsheetId, range: `'${sheetName}'!A:AJ` });
+    const values = source.data.values ?? [];
+    const targets = locateTodayResultTargets(values, date, nameToId, sheetName);
+    const writes = targets.map((target) => {
+      const stats = accountSendStats.get(target.accountId);
+      if (!stats) throw new Error(`${target.name} (${target.accountId}) の本日送信実績が管理画面にありません。`);
+      return {
+        range: `'${sheetName}'!AG${target.row}:AI${target.row}`,
+        values: [[stats.interaction, stats.individual, stats.broadcast]],
+      };
+    });
+    await sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId,
+      requestBody: { valueInputOption: 'RAW', data: writes },
+    });
+    results.push({ sheetName, todayResultCount: targets.length });
+  }
+  return results;
+}
+
 async function main() {
+  if (process.env.TODAY_RESULTS_ONLY === '1') {
+    const date = todayReportDate();
+    const accountSendStats = await fetchTodayResultStats(date);
+    const updatedSheets = await updateTodayResults(accountSendStats, date);
+    const destination = updatedSheets.map(({ sheetName, todayResultCount }) => `${sheetName}: today results ${todayResultCount}`).join('; ');
+    console.log(`${date.label} current totals -> ${destination}; source=${date.display}`);
+    return;
+  }
+
   const hour = reportHour();
   const date = reportDate(hour);
   const metrics = await fetchReportMetrics(date, hour);
