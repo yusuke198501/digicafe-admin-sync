@@ -124,13 +124,19 @@ function reportDate(hour) {
 
 function todayReportDate() {
   const { year, month, day } = jstDateParts();
+  const hour = Number(new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Tokyo', hourCycle: 'h23', hour: '2-digit',
+  }).formatToParts(new Date()).find((part) => part.type === 'hour').value);
+  const value = new Date(Date.UTC(year, month - 1, day));
+  // 24〜27時の勤務帯は翌日0〜3時に更新するが、振分表では前日ブロックを使う。
+  if (hour <= 3) value.setUTCDate(value.getUTCDate() - 1);
   return {
-    year,
-    month,
-    day,
-    label: `${month}/${day}`,
-    iso: `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
-    display: `${year}/${String(month).padStart(2, '0')}/${String(day).padStart(2, '0')}`,
+    year: value.getUTCFullYear(),
+    month: value.getUTCMonth() + 1,
+    day: value.getUTCDate(),
+    label: `${value.getUTCMonth() + 1}/${value.getUTCDate()}`,
+    iso: `${value.getUTCFullYear()}-${String(value.getUTCMonth() + 1).padStart(2, '0')}-${String(value.getUTCDate()).padStart(2, '0')}`,
+    display: `${value.getUTCFullYear()}/${String(value.getUTCMonth() + 1).padStart(2, '0')}/${String(value.getUTCDate()).padStart(2, '0')}`,
   };
 }
 
