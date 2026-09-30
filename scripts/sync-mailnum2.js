@@ -693,6 +693,25 @@ function locateTodayResultTargets(values, date, nameToId, sheetName) {
   return targets;
 }
 
+function locateTodayResultTimeRow(values, date, sheetName) {
+  const titleIndex = values.findIndex(([columnA, columnB]) => text(columnA).startsWith(date.label) && text(columnB) === 'DC');
+  if (titleIndex < 0) throw new Error(`${date.label} DC block was not found in ${sheetName}.`);
+  const nextBlockIndex = values.findIndex((row, index) => index > titleIndex
+    && /^\d{1,2}\/\d{1,2}/.test(text(row[0]))
+    && ['DC', 'feliz'].includes(text(row[1])));
+  const endIndex = nextBlockIndex < 0 ? values.length : nextBlockIndex;
+  const headerIndex = values.findIndex((row, index) => index > titleIndex && index < endIndex
+    && text(row[32]) === '本日結果');
+  if (headerIndex < 0) throw new Error(`${date.label} DC block の本日結果見出しが見つかりません。`);
+  return headerIndex + 2;
+}
+
+function currentTimeJst() {
+  return new Intl.DateTimeFormat('ja-JP', {
+    timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).format(new Date());
+}
+
 async function updateSheet(metrics, hour, date) {
   const auth = new google.auth.GoogleAuth({
     credentials: JSON.parse(required('GOOGLE_SERVICE_ACCOUNT_JSON')),
@@ -701,6 +720,7 @@ async function updateSheet(metrics, hour, date) {
   const sheets = google.sheets({ version: 'v4', auth });
   const spreadsheetId = required('SPREADSHEET_ID');
   const nameToId = await loadNameToId(sheets, spreadsheetId);
+  const executionTime = currentTimeJst();
   const results = [];
   for (const sheetName of SHEET_NAMES) {
     const range = `'${sheetName}'!A:AJ`;
@@ -713,6 +733,7 @@ async function updateSheet(metrics, hour, date) {
     const sendHeaderRow = locateSendHeaderRow(values, date, sheetName);
     const sendRow = row;
     const todayResultTargets = locateTodayResultTargets(values, date, nameToId, sheetName);
+    const todayResultTimeRow = locateTodayResultTimeRow(values, date, sheetName);
     const todayResultWrites = todayResultTargets.map((target) => {
       const stats = metrics.accountSendStats.get(target.accountId);
       if (!stats) throw new Error(`${target.name} (${target.accountId}) の本日送信実績が管理画面にありません。`);
@@ -744,6 +765,7 @@ async function updateSheet(metrics, hour, date) {
           { range: `'${sheetName}'!L${sendRow}:P${sendRow}`, values: [[
             metrics.boxASend, metrics.boxBSend, metrics.boxCSend, metrics.boxESend, metrics.sendTotal,
           ]] },
+          { range: `'${sheetName}'!AG${todayResultTimeRow}`, values: [[executionTime]] },
           ...todayResultWrites,
         ],
       },
@@ -761,12 +783,14 @@ async function updateTodayResults(accountSendStats, date) {
   const sheets = google.sheets({ version: 'v4', auth });
   const spreadsheetId = required('SPREADSHEET_ID');
   const nameToId = await loadNameToId(sheets, spreadsheetId);
+  const executionTime = currentTimeJst();
   const results = [];
 
   for (const sheetName of SHEET_NAMES) {
     const source = await sheets.spreadsheets.values.get({ spreadsheetId, range: `'${sheetName}'!A:AJ` });
     const values = source.data.values ?? [];
     const targets = locateTodayResultTargets(values, date, nameToId, sheetName);
+    const todayResultTimeRow = locateTodayResultTimeRow(values, date, sheetName);
     const writes = targets.map((target) => {
       const stats = accountSendStats.get(target.accountId);
       if (!stats) throw new Error(`${target.name} (${target.accountId}) の本日送信実績が管理画面にありません。`);
@@ -774,6 +798,10 @@ async function updateTodayResults(accountSendStats, date) {
         range: `'${sheetName}'!AG${target.row}:AI${target.row}`,
         values: [[stats.interaction, stats.individual, stats.broadcast]],
       };
+    });
+    writes.push({
+      range: `'${sheetName}'!AG${todayResultTimeRow}`,
+      values: [[executionTime]],
     });
     await sheets.spreadsheets.values.batchUpdate({
       spreadsheetId,
