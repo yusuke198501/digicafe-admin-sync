@@ -696,14 +696,9 @@ function locateTodayResultTargets(values, date, nameToId, sheetName) {
 function locateTodayResultTimeRow(values, date, sheetName) {
   const titleIndex = values.findIndex(([columnA, columnB]) => text(columnA).startsWith(date.label) && text(columnB) === 'DC');
   if (titleIndex < 0) throw new Error(`${date.label} DC block was not found in ${sheetName}.`);
-  const nextBlockIndex = values.findIndex((row, index) => index > titleIndex
-    && /^\d{1,2}\/\d{1,2}/.test(text(row[0]))
-    && ['DC', 'feliz'].includes(text(row[1])));
-  const endIndex = nextBlockIndex < 0 ? values.length : nextBlockIndex;
-  const headerIndex = values.findIndex((row, index) => index > titleIndex && index < endIndex
-    && text(row[32]) === '本日結果');
-  if (headerIndex < 0) throw new Error(`${date.label} DC block の本日結果見出しが見つかりません。`);
-  return headerIndex + 2;
+  // The timestamp sits directly below the date row: e.g. 9/30 uses AG4842,
+  // immediately under the 本日結果 heading in AG4841.
+  return titleIndex + 2;
 }
 
 function currentTimeJst() {
