@@ -13,10 +13,15 @@ on:
   workflow_dispatch:
     inputs:
       report_hour:
-        description: Target reporting hour (leave blank when started by Cloud Scheduler)
+        description: Target reporting hour for a manual run
         required: false
         type: choice
         options: ['9', '10', '13', '17', '21', '24', '27']
+      allow_stale_report:
+        description: Allow an explicitly selected report hour to run 60+ minutes late (manual backfill only)
+        required: false
+        type: boolean
+        default: false
 permissions:
   contents: read
 
@@ -42,6 +47,7 @@ jobs:
           GITHUB_EVENT_NAME: ${{ github.event_name }}
           GITHUB_EVENT_SCHEDULE: ${{ github.event.schedule }}
           REPORT_HOUR: ${{ inputs.report_hour || github.event.inputs.report_hour }}
+          ALLOW_STALE_REPORT: ${{ inputs.allow_stale_report || github.event.inputs.allow_stale_report }}
           LOG_ACCOUNT: ${{ secrets.LOG_ACCOUNT }}
           LOG_PASSWORD: ${{ secrets.LOG_PASSWORD }}
           PHPLITEADMIN_PASSWORD: ${{ secrets.PHPLITEADMIN_PASSWORD }}

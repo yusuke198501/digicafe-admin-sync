@@ -1,6 +1,7 @@
 {
   "type": "module",
   "scripts": {
+    "test": "node --test",
     "sync-admin": "node scripts/sync-admin.js",
     "sync-mailnum2": "node scripts/sync-mailnum2.js",
     "sync-previous-results": "node scripts/sync-previous-results.js"

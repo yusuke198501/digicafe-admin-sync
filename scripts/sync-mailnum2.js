@@ -3,6 +3,7 @@ import { wrapper } from 'axios-cookiejar-support';
 import { CookieJar } from 'tough-cookie';
 import * as cheerio from 'cheerio';
 import { google } from 'googleapis';
+import { isReportSlotStale, reportSlotJstLabel, reportSlotLagMinutes } from './report-slot-guard.js';
 
 const LOGIN_URL = 'https://log.digicafe.jp/partner/';
 const REPORT_URL = 'https://log.digicafe.jp/partner/mailnum_uf';
@@ -64,45 +65,11 @@ function reportHour() {
   const scheduledHour = scheduledHours.get(process.env.GITHUB_EVENT_SCHEDULE);
   if (scheduledHour) return scheduledHour;
 
-  // Cloud Scheduler starts this workflow through workflow_dispatch without
-  // REPORT_HOUR.  Infer the latest completed reporting slot from JST.
-  if (process.env.GITHUB_EVENT_NAME === 'schedule'
-    || process.env.GITHUB_EVENT_NAME === 'workflow_dispatch'
-    || process.env.GITHUB_EVENT_SCHEDULE) {
-    const parts = new Intl.DateTimeFormat('en-US', {
-      timeZone: 'Asia/Tokyo',
-      hourCycle: 'h23',
-      hour: '2-digit',
-      minute: '2-digit',
-    }).formatToParts(new Date());
-    const get = (type) => Number(parts.find((part) => part.type === type).value);
-    const currentHour = get('hour');
-    const currentMinute = get('minute');
-
-    // mailnum2 records the next reporting slot around :56.  For example,
-    // the 17:56 record belongs in the 18:00 row, even if Actions starts
-    // before 18:00 (such as 17:58).
-    if (currentMinute >= 56) {
-      const slotForFreshSourceHour = new Map([
-        [2, 27],
-        [8, 9],
-        [9, 10],
-        [12, 13],
-        [16, 17],
-        [20, 21],
-        [23, 24],
-      ]);
-      const freshSlot = slotForFreshSourceHour.get(currentHour);
-      if (freshSlot) return freshSlot;
-    }
-
-    if (currentHour < 3) return 24;
-    if (currentHour < 9) return 27;
-    if (currentHour < 10) return 9;
-    if (currentHour < 13) return 10;
-    if (currentHour < 17) return 13;
-    if (currentHour < 21) return 17;
-    return 21;
+  // A dispatch without an explicit slot has no reliable way to distinguish
+  // an on-time trigger from a delayed/retried Cloud Scheduler request. Fail
+  // closed rather than infer a new target from the time the job finally runs.
+  if (process.env.GITHUB_EVENT_NAME === 'workflow_dispatch') {
+    throw new Error('REPORT_HOUR is required for workflow_dispatch; refusing to infer a target slot from the execution time.');
   }
 
   throw new Error('Could not determine the target hour from the schedule. Use REPORT_HOUR for manual runs.');
@@ -707,7 +674,7 @@ function currentTimeJst() {
   }).format(new Date());
 }
 
-async function updateSheet(metrics, hour, date) {
+async function updateSheet(metrics, hour, date, canRunForSlot) {
   const auth = new google.auth.GoogleAuth({
     credentials: JSON.parse(required('GOOGLE_SERVICE_ACCOUNT_JSON')),
     scopes: ['https://www.googleapis.com/auth/spreadsheets'],
@@ -738,6 +705,7 @@ async function updateSheet(metrics, hour, date) {
       };
     });
 
+    if (!canRunForSlot('before write')) return null;
     await sheets.spreadsheets.values.batchUpdate({
       spreadsheetId,
       requestBody: {
@@ -819,8 +787,24 @@ async function main() {
 
   const hour = reportHour();
   const date = reportDate(hour);
+
+  const allowStaleExplicitRun = Boolean(process.env.REPORT_HOUR)
+    && process.env.ALLOW_STALE_REPORT === 'true';
+  const canRunForSlot = (phase) => {
+    if (allowStaleExplicitRun || !isReportSlotStale(date.iso, hour)) return true;
+    const lagMinutes = Math.round(reportSlotLagMinutes(date.iso, hour));
+    console.log(`SKIPPED stale mailnum2 report: target=${reportSlotJstLabel(date.iso, hour)}, `
+      + `late_by=${lagMinutes}m at ${phase}; no spreadsheet write was performed.`);
+    return false;
+  };
+
+  // Check before network operations and again immediately before writing, in
+  // case a slow fetch crosses the one-hour cutoff.
+  if (!canRunForSlot('before fetch')) return;
   const metrics = await fetchReportMetrics(date, hour);
-  const updatedSheets = await updateSheet(metrics, hour, date);
+  if (!canRunForSlot('after fetch')) return;
+  const updatedSheets = await updateSheet(metrics, hour, date, canRunForSlot);
+  if (!updatedSheets) return;
   const destination = updatedSheets.map(({ sheetName, row, boxRow, sendRow, todayResultCount }) => `${sheetName}: row ${row}, box row ${boxRow}, send row ${sendRow}, today results ${todayResultCount}`).join('; ');
   console.log(`${date.label} ${hour}:00 -> ${destination}; all_receive=${metrics.receivemails}, uf_receive=${metrics.mktReceivemails}, gross_dau=${metrics.grossDau}, send_a=${metrics.boxASend}, send_b=${metrics.boxBSend}, send_c=${metrics.boxCSend}, send_e=${metrics.boxESend}, send_total=${metrics.sendTotal}; source=${date.display}`);
 }
