@@ -1,6 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isReportSlotStale, reportSlotJstLabel, reportSlotLagMinutes } from './report-slot-guard.js';
+import { inferReportHourFromTrigger, isReportSlotStale, reportSlotJstLabel, reportSlotLagMinutes } from './report-slot-guard.js';
+
+test('infers the slot from the original dispatch time, not the delayed runner start', () => {
+  assert.equal(inferReportHourFromTrigger('2026-10-02T00:05:04Z'), 9); // 09:05 JST
+  assert.equal(inferReportHourFromTrigger('2026-10-02T01:05:04Z'), 10); // 10:05 JST
+  assert.equal(inferReportHourFromTrigger('2026-10-02T18:05:04Z'), 27); // 03:05 JST next day
+});
 
 test('allows a scheduled report within the first 60 minutes', () => {
   const at = new Date('2026-10-01T01:59:59Z'); // 10:59:59 JST, target 10:00

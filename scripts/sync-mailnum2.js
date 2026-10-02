@@ -3,7 +3,7 @@ import { wrapper } from 'axios-cookiejar-support';
 import { CookieJar } from 'tough-cookie';
 import * as cheerio from 'cheerio';
 import { google } from 'googleapis';
-import { isReportSlotStale, reportSlotJstLabel, reportSlotLagMinutes } from './report-slot-guard.js';
+import { inferReportHourFromTrigger, isReportSlotStale, reportSlotJstLabel, reportSlotLagMinutes } from './report-slot-guard.js';
 
 const LOGIN_URL = 'https://log.digicafe.jp/partner/';
 const REPORT_URL = 'https://log.digicafe.jp/partner/mailnum_uf';
@@ -34,18 +34,18 @@ function headerName(cell) {
   return text(cell).replace(/[↑↓]/g, '');
 }
 
-function jstDateParts() {
+function jstDateParts(date = new Date()) {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: 'Asia/Tokyo',
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
-  }).formatToParts(new Date());
+  }).formatToParts(date);
   const get = (type) => Number(parts.find((part) => part.type === type).value);
   return { year: get('year'), month: get('month'), day: get('day') };
 }
 
-function reportHour() {
+function reportHour(dispatchCreatedAt) {
   if (process.env.REPORT_HOUR) {
     const hour = Number(process.env.REPORT_HOUR);
     if (REPORT_HOURS.includes(hour)) return hour;
@@ -65,18 +65,21 @@ function reportHour() {
   const scheduledHour = scheduledHours.get(process.env.GITHUB_EVENT_SCHEDULE);
   if (scheduledHour) return scheduledHour;
 
-  // A dispatch without an explicit slot has no reliable way to distinguish
-  // an on-time trigger from a delayed/retried Cloud Scheduler request. Fail
-  // closed rather than infer a new target from the time the job finally runs.
+  // External schedulers use workflow_dispatch without inputs. Use the GitHub
+  // run's created_at (trigger time), never the runner start time, to preserve
+  // the intended slot when GitHub queues the job late.
   if (process.env.GITHUB_EVENT_NAME === 'workflow_dispatch') {
-    throw new Error('REPORT_HOUR is required for workflow_dispatch; refusing to infer a target slot from the execution time.');
+    if (!dispatchCreatedAt) {
+      throw new Error('REPORT_HOUR is required for workflow_dispatch unless the original trigger time can be read from GitHub.');
+    }
+    return inferReportHourFromTrigger(dispatchCreatedAt);
   }
 
   throw new Error('Could not determine the target hour from the schedule. Use REPORT_HOUR for manual runs.');
 }
 
-function reportDate(hour) {
-  const { year, month, day } = jstDateParts();
+function reportDate(hour, referenceDate = new Date()) {
+  const { year, month, day } = jstDateParts(referenceDate);
   const date = new Date(Date.UTC(year, month - 1, day));
   if (hour >= 24) date.setUTCDate(date.getUTCDate() - 1);
   return {
@@ -87,6 +90,27 @@ function reportDate(hour) {
     iso: `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`,
     display: `${date.getUTCFullYear()}/${String(date.getUTCMonth() + 1).padStart(2, '0')}/${String(date.getUTCDate()).padStart(2, '0')}`,
   };
+}
+
+async function workflowDispatchCreatedAt() {
+  const runId = process.env.GITHUB_RUN_ID;
+  const repository = process.env.GITHUB_REPOSITORY;
+  const token = process.env.GITHUB_TOKEN;
+  if (!runId || !repository || !token) return null;
+
+  const response = await fetch(`https://api.github.com/repos/${repository}/actions/runs/${runId}`, {
+    headers: {
+      Accept: 'application/vnd.github+json',
+      Authorization: `Bearer ${token}`,
+      'X-GitHub-Api-Version': '2022-11-28',
+    },
+  });
+  if (!response.ok) throw new Error(`Could not read workflow dispatch time from GitHub (${response.status}).`);
+  const run = await response.json();
+  if (!run.created_at || Number(run.id) !== Number(runId)) {
+    throw new Error('GitHub did not return a valid created_at time for this workflow run.');
+  }
+  return run.created_at;
 }
 
 function todayReportDate() {
@@ -785,8 +809,12 @@ async function main() {
     return;
   }
 
-  const hour = reportHour();
-  const date = reportDate(hour);
+  const dispatchCreatedAt = process.env.GITHUB_EVENT_NAME === 'workflow_dispatch'
+    && !process.env.REPORT_HOUR
+    ? await workflowDispatchCreatedAt()
+    : null;
+  const hour = reportHour(dispatchCreatedAt);
+  const date = reportDate(hour, dispatchCreatedAt ? new Date(dispatchCreatedAt) : new Date());
 
   const allowStaleExplicitRun = Boolean(process.env.REPORT_HOUR)
     && process.env.ALLOW_STALE_REPORT === 'true';

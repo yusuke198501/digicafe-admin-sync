@@ -24,6 +24,7 @@ on:
         default: false
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: mailnum2-sync
@@ -48,6 +49,7 @@ jobs:
           GITHUB_EVENT_SCHEDULE: ${{ github.event.schedule }}
           REPORT_HOUR: ${{ inputs.report_hour || github.event.inputs.report_hour }}
           ALLOW_STALE_REPORT: ${{ inputs.allow_stale_report || github.event.inputs.allow_stale_report }}
+          GITHUB_TOKEN: ${{ github.token }}
           LOG_ACCOUNT: ${{ secrets.LOG_ACCOUNT }}
           LOG_PASSWORD: ${{ secrets.LOG_PASSWORD }}
           PHPLITEADMIN_PASSWORD: ${{ secrets.PHPLITEADMIN_PASSWORD }}
