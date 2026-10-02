@@ -2,8 +2,8 @@ name: 本日結果更新
 
 on:
   schedule:
-    # 毎時10分（UTC）。本日結果だけを更新する専用ワークフロー。
-    - cron: '10 * * * *'
+    # 毎時23分（UTC）。毎時ちょうどの混雑を避ける。
+    - cron: '23 * * * *'
   workflow_dispatch:
 
 permissions:
