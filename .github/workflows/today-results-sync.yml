@@ -2,8 +2,8 @@ name: 本日結果更新
 
 on:
   schedule:
-    # UTC 00:10〜18:10 = 日本時間の9:10〜翌3:10。mailnum2集計（毎時:05）と競合させない。
-    - cron: '10 0-18 * * *'
+    # 毎時10分（UTC）。本日結果だけを更新する専用ワークフロー。
+    - cron: '10 * * * *'
   workflow_dispatch:
 
 permissions:
