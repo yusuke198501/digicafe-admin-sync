@@ -3,7 +3,7 @@ import { wrapper } from 'axios-cookiejar-support';
 import { CookieJar } from 'tough-cookie';
 import * as cheerio from 'cheerio';
 import { google } from 'googleapis';
-import { inferReportHourFromTrigger, isReportSlotStale, reportSlotJstLabel, reportSlotLagMinutes } from './report-slot-guard.js';
+import { inferReportHourFromTrigger, isReportSlotStale, reportDateForSlot, reportSlotJstLabel, reportSlotLagMinutes } from './report-slot-guard.js';
 
 const LOGIN_URL = 'https://log.digicafe.jp/partner/';
 const REPORT_URL = 'https://log.digicafe.jp/partner/mailnum_uf';
@@ -76,20 +76,6 @@ function reportHour(dispatchCreatedAt) {
   }
 
   throw new Error('Could not determine the target hour from the schedule. Use REPORT_HOUR for manual runs.');
-}
-
-function reportDate(hour, referenceDate = new Date()) {
-  const { year, month, day } = jstDateParts(referenceDate);
-  const date = new Date(Date.UTC(year, month - 1, day));
-  if (hour >= 24) date.setUTCDate(date.getUTCDate() - 1);
-  return {
-    year: date.getUTCFullYear(),
-    month: date.getUTCMonth() + 1,
-    day: date.getUTCDate(),
-    label: `${date.getUTCMonth() + 1}/${date.getUTCDate()}`,
-    iso: `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`,
-    display: `${date.getUTCFullYear()}/${String(date.getUTCMonth() + 1).padStart(2, '0')}/${String(date.getUTCDate()).padStart(2, '0')}`,
-  };
 }
 
 async function workflowDispatchCreatedAt() {
@@ -814,7 +800,11 @@ async function main() {
     ? await workflowDispatchCreatedAt()
     : null;
   const hour = reportHour(dispatchCreatedAt);
-  const date = reportDate(hour, dispatchCreatedAt ? new Date(dispatchCreatedAt) : new Date());
+  const date = reportDateForSlot(
+    hour,
+    dispatchCreatedAt ? new Date(dispatchCreatedAt) : new Date(),
+    process.env.GITHUB_EVENT_NAME === 'schedule',
+  );
 
   const allowStaleExplicitRun = Boolean(process.env.REPORT_HOUR)
     && process.env.ALLOW_STALE_REPORT === 'true';
