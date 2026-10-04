@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { inferReportHourFromTrigger, isReportSlotStale, reportSlotJstLabel, reportSlotLagMinutes } from './report-slot-guard.js';
+import { inferReportHourFromTrigger, isReportSlotStale, reportDateForSlot, reportSlotJstLabel, reportSlotLagMinutes } from './report-slot-guard.js';
 
 test('infers the slot from the original dispatch time, not the delayed runner start', () => {
   assert.equal(inferReportHourFromTrigger('2026-10-02T00:05:04Z'), 9); // 09:05 JST
@@ -25,6 +25,18 @@ test('maps the 24:00 and 27:00 report slots to the next JST calendar day', () =>
   assert.equal(isReportSlotStale('2026-10-01', 27, new Date('2026-10-02T01:00:00Z')), true);
   assert.equal(reportSlotJstLabel('2026-10-01', 24), '2026-10-02 00:00 JST');
   assert.equal(reportSlotJstLabel('2026-10-01', 27), '2026-10-02 03:00 JST');
+});
+
+test('a delayed scheduled 21:00 run after midnight stays on the previous report date', () => {
+  const delayed = new Date('2026-10-03T15:56:00Z'); // 2026-10-04 00:56 JST
+  const date = reportDateForSlot(21, delayed, true);
+  assert.equal(date.iso, '2026-10-03');
+  assert.equal(isReportSlotStale(date.iso, 21, delayed), true);
+});
+
+test('same-day scheduled runs and manually selected dates retain their date', () => {
+  assert.equal(reportDateForSlot(21, new Date('2026-10-03T12:10:00Z'), true).iso, '2026-10-03');
+  assert.equal(reportDateForSlot(21, new Date('2026-10-03T15:56:00Z'), false).iso, '2026-10-04');
 });
 
 test('rejects invalid report dates and hours', () => {
