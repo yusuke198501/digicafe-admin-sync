@@ -22,6 +22,45 @@ export function inferReportHourFromTrigger(triggerTime) {
 }
 
 /**
+ * Resolves the spreadsheet date for a report slot. A scheduled run for an
+ * hour below 24 that starts after midnight but before that hour belongs to
+ * the previous JST day; otherwise a delayed 21:00 run could write tomorrow's
+ * 21:00 row. Manual runs keep the explicitly selected current date behavior.
+ */
+export function reportDateForSlot(reportHour, referenceDate = new Date(), scheduled = false) {
+  if (!Number.isInteger(reportHour) || reportHour < 0 || reportHour > 27) {
+    throw new Error(`Invalid report hour: ${reportHour}`);
+  }
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Tokyo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hourCycle: 'h23',
+    hour: '2-digit',
+  }).formatToParts(referenceDate);
+  const get = (type) => Number(parts.find((part) => part.type === type).value);
+  const date = new Date(Date.UTC(get('year'), get('month') - 1, get('day')));
+  const hour = get('hour');
+
+  if (reportHour >= 24 || (scheduled && hour < reportHour)) {
+    date.setUTCDate(date.getUTCDate() - 1);
+  }
+
+  const year = date.getUTCFullYear();
+  const month = date.getUTCMonth() + 1;
+  const day = date.getUTCDate();
+  return {
+    year,
+    month,
+    day,
+    label: `${month}/${day}`,
+    iso: `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
+    display: `${year}/${String(month).padStart(2, '0')}/${String(day).padStart(2, '0')}`,
+  };
+}
+
+/**
  * Returns how many minutes a run is past its reporting slot.
  * reportDate is the spreadsheet date; slots 24 and 27 occur on the following
  * JST calendar day at 00:00 and 03:00 respectively.
