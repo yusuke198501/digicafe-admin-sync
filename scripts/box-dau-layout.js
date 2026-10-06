@@ -44,6 +44,17 @@ export function boxColumnsFromHeader(header) {
   }));
 }
 
+export function sendColumnsFromHeader(header) {
+  const labels = header.map(normalize);
+  const sendIndex = labels.indexOf('送信数');
+  if (sendIndex < 0) throw new Error('送信表の「送信数」見出しがありません。');
+  return Object.fromEntries(['A', 'B', 'C', 'E', '全体'].map((label) => {
+    const index = labels.findIndex((value, i) => i > sendIndex && value === normalize(label));
+    if (index < 0) throw new Error(`送信表の「${label}」見出しがありません。`);
+    return [label, index];
+  }));
+}
+
 export function boxHeaderLabels() {
   return BOX_CODES.flatMap((box) => [
     `${box}受信目標`, `${box}受信`, `${box}DAU目標`, `${box}DAU`,

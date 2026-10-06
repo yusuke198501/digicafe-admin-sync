@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { boxColumnsFromHeader, boxHeaderLabels, parseDailyBoxDau } from './box-dau-layout.js';
+import { boxColumnsFromHeader, boxHeaderLabels, parseDailyBoxDau, sendColumnsFromHeader } from './box-dau-layout.js';
 
 test('parses gross and each configured box DAU by its table header', () => {
   const rows = [
@@ -30,4 +30,9 @@ test('finds receive and DAU actual columns from the BOX header labels', () => {
 
 test('rejects an incomplete BOX header instead of writing to a guessed cell', () => {
   assert.throws(() => boxColumnsFromHeader(['BOX別', 'A受信目標', 'A受信']), /ADAU/);
+});
+
+test('finds send metrics by label even when global column inserts spaced them apart', () => {
+  const columns = sendColumnsFromHeader(['時間/合計', '', '送信数', '', '', 'A', 'B', '', 'C', 'E', '', '', '全体']);
+  assert.deepEqual(columns, { A: 5, B: 6, C: 8, E: 9, '全体': 12 });
 });

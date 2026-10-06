@@ -5,7 +5,7 @@ import * as cheerio from 'cheerio';
 import { google } from 'googleapis';
 import { inferReportHourFromTrigger, isReportSlotStale, reportDateForSlot, reportSlotJstLabel, reportSlotLagMinutes } from './report-slot-guard.js';
 import { parseGrossSales } from './gross-sales-report.js';
-import { boxColumnsFromHeader, parseDailyBoxDau } from './box-dau-layout.js';
+import { boxColumnsFromHeader, parseDailyBoxDau, sendColumnsFromHeader } from './box-dau-layout.js';
 
 const LOGIN_URL = 'https://log.digicafe.jp/partner/';
 const REPORT_URL = 'https://log.digicafe.jp/partner/mailnum_uf';
@@ -649,7 +649,7 @@ function locateBoxTargetRow(values, date, hour, sheetName) {
   return { row: rowIndex + 1, header: values[boxHeaderIndex] ?? [], replaceTimeLabel };
 }
 
-function locateSendHeaderRow(values, date, sheetName) {
+function locateSendTable(values, date, sheetName) {
   const titleIndex = values.findIndex(([columnA, columnB]) => text(columnA).startsWith(date.label) && text(columnB) === 'DC');
   if (titleIndex < 0) throw new Error(`${date.label} DC block was not found in ${sheetName}.`);
 
@@ -657,7 +657,10 @@ function locateSendHeaderRow(values, date, sheetName) {
     && index < titleIndex + 50
     && columns.some((column) => text(column).startsWith('時間/')));
   if (sendHeaderIndex < 0) throw new Error(`The time table was not found below the ${date.label} DC block.`);
-  return sendHeaderIndex + 1;
+  return {
+    row: sendHeaderIndex + 1,
+    columns: sendColumnsFromHeader(values[sendHeaderIndex] ?? []),
+  };
 }
 
 function normalizeSheetName(value) {
@@ -734,7 +737,7 @@ async function updateSheet(metrics, hour, date, canRunForSlot) {
     const row = target.row;
     const boxRow = boxTarget.row;
     const boxColumns = boxColumnsFromHeader(boxTarget.header);
-    const sendHeaderRow = locateSendHeaderRow(values, date, sheetName);
+    const sendTable = locateSendTable(values, date, sheetName);
     const sendRow = row;
     const todayResultTargets = locateTodayResultTargets(values, date, nameToId, sheetName);
     const todayResultTimeRow = locateTodayResultTimeRow(values, date, sheetName);
@@ -768,10 +771,13 @@ async function updateSheet(metrics, hour, date, canRunForSlot) {
             { range: `'${sheetName}'!${columnLetter(boxColumns[box].receiveIndex)}${boxRow}`, values: [[receiveValue]] },
             { range: `'${sheetName}'!${columnLetter(boxColumns[box].dauIndex)}${boxRow}`, values: [[metrics[`box${box}Dau`]]] },
           ]),
-          { range: `'${sheetName}'!S${sendHeaderRow}:X${sendHeaderRow}`, values: [['送信数', 'A', 'B', 'C', 'E', '全体']] },
-          { range: `'${sheetName}'!T${sendRow}:X${sendRow}`, values: [[
-            metrics.boxASend, metrics.boxBSend, metrics.boxCSend, metrics.boxESend, metrics.sendTotal,
-          ]] },
+          ...[
+            ['A', metrics.boxASend], ['B', metrics.boxBSend], ['C', metrics.boxCSend],
+            ['E', metrics.boxESend], ['全体', metrics.sendTotal],
+          ].map(([label, value]) => ({
+            range: `'${sheetName}'!${columnLetter(sendTable.columns[label])}${sendRow}`,
+            values: [[value]],
+          })),
           { range: `'${sheetName}'!AW${todayResultTimeRow}`, values: [[executionTime]] },
           ...todayResultWrites,
         ],
