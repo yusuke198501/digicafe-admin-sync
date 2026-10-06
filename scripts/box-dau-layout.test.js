@@ -4,19 +4,19 @@ import { boxColumnsFromHeader, boxHeaderLabels, parseDailyBoxDau, sendColumnsFro
 
 test('parses gross and each configured box DAU by its table header', () => {
   const rows = [
-    ['DAU（グロス）', 'ADAU', 'BDAU', 'CDAU', 'EDAU', 'HDAU', 'IDAU', 'JDAU', 'KDAU', 'LDAU', 'MDAU', 'NDAU', 'ODAU', 'QDAU'],
-    ['2026/10/06', '732', '92', '85', '90', '178', '6', '37', '92', '0', '6', '100', '0', '0', '106'],
+    ['', 'DAU（グロス）', 'ADAU', 'BDAU', 'CDAU', 'EDAU', 'HDAU', 'IDAU', 'JDAU', 'KDAU', 'LDAU', 'MDAU', 'NDAU', 'ODAU', 'QDAU'],
+    ['2026/10/06', '790', '100', '96', '97', '194', '5', '43', '98', '0', '6', '109', '0', '0', '118'],
   ];
   assert.deepEqual(parseDailyBoxDau(rows, '2026/10/06'), {
-    grossDau: 732,
-    boxADau: 92,
-    boxBDau: 85,
-    boxCDau: 90,
-    boxEDau: 178,
-    boxIDau: 37,
-    boxJDau: 92,
-    boxMDau: 100,
-    boxQDau: 106,
+    grossDau: 790,
+    boxADau: 100,
+    boxBDau: 96,
+    boxCDau: 97,
+    boxEDau: 194,
+    boxIDau: 43,
+    boxJDau: 98,
+    boxMDau: 109,
+    boxQDau: 118,
   });
 });
 
