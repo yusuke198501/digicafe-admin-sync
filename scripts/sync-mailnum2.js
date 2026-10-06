@@ -5,7 +5,7 @@ import * as cheerio from 'cheerio';
 import { google } from 'googleapis';
 import { inferReportHourFromTrigger, isReportSlotStale, reportDateForSlot, reportSlotJstLabel, reportSlotLagMinutes } from './report-slot-guard.js';
 import { parseGrossSales } from './gross-sales-report.js';
-import { boxColumnsFromHeader, parseDailyBoxDau, sendColumnsFromHeader } from './box-dau-layout.js';
+import { boxColumnsFromHeader, parseDailyBoxDau, sendColumnsFromHeader, summaryMetricColumnsFromHeader } from './box-dau-layout.js';
 
 const LOGIN_URL = 'https://log.digicafe.jp/partner/';
 const REPORT_URL = 'https://log.digicafe.jp/partner/mailnum_uf';
@@ -621,7 +621,8 @@ function locateTargetRow(values, date, hour, sheetName) {
     replaceTimeLabel = rowIndex >= 0;
   }
   if (rowIndex < 0) throw new Error(`${hour} o'clock row was not found in the ${date.label} DC block.`);
-  return { row: rowIndex + 1, replaceTimeLabel };
+  const metricColumns = summaryMetricColumnsFromHeader(values[timeHeaderIndex - 1] ?? []);
+  return { row: rowIndex + 1, replaceTimeLabel, metricColumns };
 }
 
 function locateBoxTargetRow(values, date, hour, sheetName) {
@@ -758,9 +759,9 @@ async function updateSheet(metrics, hour, date, canRunForSlot) {
         data: [
           ...(target.replaceTimeLabel ? [{ range: `'${sheetName}'!A${row}`, values: [[hour]] }] : []),
           ...(boxTarget.replaceTimeLabel ? [{ range: `'${sheetName}'!A${boxRow}`, values: [[hour]] }] : []),
-          { range: `'${sheetName}'!C${row}`, values: [[metrics.receivemails]] },
-          { range: `'${sheetName}'!G${row}`, values: [[metrics.mktReceivemails]] },
-          { range: `'${sheetName}'!O${row}`, values: [[metrics.grossDau]] },
+          { range: `'${sheetName}'!${columnLetter(target.metricColumns.grossReceiveIndex)}${row}`, values: [[metrics.receivemails]] },
+          { range: `'${sheetName}'!${columnLetter(target.metricColumns.ufReceiveIndex)}${row}`, values: [[metrics.mktReceivemails]] },
+          { range: `'${sheetName}'!${columnLetter(target.metricColumns.grossDauIndex)}${row}`, values: [[metrics.grossDau]] },
           { range: `'${sheetName}'!AI${row}`, values: [[metrics.grossSales]] },
           ...[
             ['A', metrics.boxAReceivemails], ['B', metrics.boxBReceivemails],

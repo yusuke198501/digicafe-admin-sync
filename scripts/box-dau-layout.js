@@ -55,6 +55,21 @@ export function sendColumnsFromHeader(header) {
   }));
 }
 
+export function summaryMetricColumnsFromHeader(header) {
+  const labels = header.map(normalize);
+  const grossReceiveIndex = labels.indexOf('グロス');
+  const ufReceiveIndex = labels.indexOf('UF');
+  const dauGoalIndex = labels.indexOf('DAU');
+  if (grossReceiveIndex < 0 || ufReceiveIndex < 0 || dauGoalIndex < 0 || dauGoalIndex + 1 >= labels.length) {
+    throw new Error('日別集計の「グロス」「UF」「DAU」見出しから書込列を特定できません。');
+  }
+  return {
+    grossReceiveIndex,
+    ufReceiveIndex,
+    grossDauIndex: dauGoalIndex + 1,
+  };
+}
+
 export function boxHeaderLabels() {
   return BOX_CODES.flatMap((box) => [
     `${box}受信目標`, `${box}受信`, `${box}DAU目標`, `${box}DAU`,

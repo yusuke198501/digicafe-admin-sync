@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { boxColumnsFromHeader, boxHeaderLabels, parseDailyBoxDau, sendColumnsFromHeader } from './box-dau-layout.js';
+import { boxColumnsFromHeader, boxHeaderLabels, parseDailyBoxDau, sendColumnsFromHeader, summaryMetricColumnsFromHeader } from './box-dau-layout.js';
 
 test('parses gross and each configured box DAU by its table header', () => {
   const rows = [
@@ -35,4 +35,24 @@ test('rejects an incomplete BOX header instead of writing to a guessed cell', ()
 test('finds send metrics by label even when global column inserts spaced them apart', () => {
   const columns = sendColumnsFromHeader(['時間/合計', '', '送信数', '', '', 'A', 'B', '', 'C', 'E', '', '', '全体']);
   assert.deepEqual(columns, { A: 5, B: 6, C: 8, E: 9, '全体': 12 });
+});
+
+test('finds daily summary write columns by header before and after the layout is compacted', () => {
+  const oldLayout = ['受信数', 'グロス目標', 'グロス', '', '', 'UF目標', 'UF', '', '', '一般目標', '一般', '', '', 'DAU', ''];
+  const compactLayout = ['受信数', 'グロス目標', 'グロス', 'UF目標', 'UF', '一般目標', '一般', 'DAU', ''];
+
+  assert.deepEqual(summaryMetricColumnsFromHeader(oldLayout), {
+    grossReceiveIndex: 2,
+    ufReceiveIndex: 6,
+    grossDauIndex: 14,
+  });
+  assert.deepEqual(summaryMetricColumnsFromHeader(compactLayout), {
+    grossReceiveIndex: 2,
+    ufReceiveIndex: 4,
+    grossDauIndex: 8,
+  });
+});
+
+test('refuses to guess if a required daily metric header is missing', () => {
+  assert.throws(() => summaryMetricColumnsFromHeader(['受信数', 'グロス目標', 'グロス', 'UF目標', 'UF']), /DAU/);
 });
