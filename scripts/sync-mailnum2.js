@@ -4,9 +4,11 @@ import { CookieJar } from 'tough-cookie';
 import * as cheerio from 'cheerio';
 import { google } from 'googleapis';
 import { inferReportHourFromTrigger, isReportSlotStale, reportDateForSlot, reportSlotJstLabel, reportSlotLagMinutes } from './report-slot-guard.js';
+import { parseGrossSales } from './gross-sales-report.js';
 
 const LOGIN_URL = 'https://log.digicafe.jp/partner/';
 const REPORT_URL = 'https://log.digicafe.jp/partner/mailnum_uf';
+const GROSS_SALES_URL = 'https://log.digicafe.jp/partner/status/pt';
 const PHPLITEADMIN_URL = 'https://smlovely.chatlove.xyz/dc/admin/phpliteadmin.php?database=..%2Fdb.db&table=mailnum2&fulltexts=0&numRows=30&action=row_view';
 const PHPLITEADMIN_SQL_URL = 'https://smlovely.chatlove.xyz/dc/admin/phpliteadmin.php?database=..%2Fdb.db&table=mailnum2&fulltexts=0&numRows=30&action=table_sql';
 const SHEET_NAMES = ['目標＆振分'];
@@ -552,7 +554,20 @@ async function fetchReportMetrics(date, hour) {
   });
   const response = await client.get(`${REPORT_URL}?${query}`, { headers: REQUEST_HEADERS });
   if (response.status !== 200) throw new Error(`管理画面データの取得に失敗しました（HTTP ${response.status}）。`);
-  return reportMetrics(response.data, date, hour);
+  const salesQuery = new URLSearchParams({
+    action_start: date.iso, action_end: date.iso,
+    code: '', frm: '',
+    created_at_start: date.iso, created_at_end: date.iso,
+    sum: '集計',
+  });
+  const salesResponse = await client.get(`${GROSS_SALES_URL}?${salesQuery}`, { headers: REQUEST_HEADERS });
+  if (salesResponse.status !== 200) {
+    throw new Error(`グロス売上の取得に失敗しました（HTTP ${salesResponse.status}）。`);
+  }
+  return {
+    ...reportMetrics(response.data, date, hour),
+    grossSales: parseGrossSales(salesResponse.data, date),
+  };
 }
 
 // 本日結果は、時間別の集計表を待たずに日毎表の最新累計を更新する。
@@ -726,6 +741,7 @@ async function updateSheet(metrics, hour, date, canRunForSlot) {
           { range: `'${sheetName}'!C${row}`, values: [[metrics.receivemails]] },
           { range: `'${sheetName}'!E${row}`, values: [[metrics.mktReceivemails]] },
           { range: `'${sheetName}'!I${row}`, values: [[metrics.grossDau]] },
+          { range: `'${sheetName}'!R${row}`, values: [[metrics.grossSales]] },
           { range: `'${sheetName}'!C${boxRow}`, values: [[metrics.boxAReceivemails]] },
           { range: `'${sheetName}'!E${boxRow}`, values: [[metrics.boxBReceivemails]] },
           { range: `'${sheetName}'!G${boxRow}`, values: [[metrics.boxCReceivemails]] },
@@ -824,7 +840,7 @@ async function main() {
   const updatedSheets = await updateSheet(metrics, hour, date, canRunForSlot);
   if (!updatedSheets) return;
   const destination = updatedSheets.map(({ sheetName, row, boxRow, sendRow, todayResultCount }) => `${sheetName}: row ${row}, box row ${boxRow}, send row ${sendRow}, today results ${todayResultCount}`).join('; ');
-  console.log(`${date.label} ${hour}:00 -> ${destination}; all_receive=${metrics.receivemails}, uf_receive=${metrics.mktReceivemails}, gross_dau=${metrics.grossDau}, send_a=${metrics.boxASend}, send_b=${metrics.boxBSend}, send_c=${metrics.boxCSend}, send_e=${metrics.boxESend}, send_total=${metrics.sendTotal}; source=${date.display}`);
+  console.log(`${date.label} ${hour}:00 -> ${destination}; all_receive=${metrics.receivemails}, uf_receive=${metrics.mktReceivemails}, gross_dau=${metrics.grossDau}, gross_sales=${metrics.grossSales}, send_a=${metrics.boxASend}, send_b=${metrics.boxBSend}, send_c=${metrics.boxCSend}, send_e=${metrics.boxESend}, send_total=${metrics.sendTotal}; source=${date.display}`);
 }
 
 main().catch((error) => {
