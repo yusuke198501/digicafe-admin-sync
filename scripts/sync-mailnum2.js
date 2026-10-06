@@ -741,7 +741,7 @@ async function updateSheet(metrics, hour, date, canRunForSlot) {
           { range: `'${sheetName}'!C${row}`, values: [[metrics.receivemails]] },
           { range: `'${sheetName}'!E${row}`, values: [[metrics.mktReceivemails]] },
           { range: `'${sheetName}'!I${row}`, values: [[metrics.grossDau]] },
-          { range: `'${sheetName}'!R${row}`, values: [[metrics.grossSales]] },
+          { range: `'${sheetName}'!S${row}`, values: [[metrics.grossSales]] },
           { range: `'${sheetName}'!C${boxRow}`, values: [[metrics.boxAReceivemails]] },
           { range: `'${sheetName}'!E${boxRow}`, values: [[metrics.boxBReceivemails]] },
           { range: `'${sheetName}'!G${boxRow}`, values: [[metrics.boxCReceivemails]] },
