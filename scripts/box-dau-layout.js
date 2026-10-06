@@ -20,12 +20,12 @@ export function parseDailyBoxDau(rows, dateDisplay) {
     return index;
   };
 
+  // The report includes an empty header cell for the date column. Data rows
+  // use that same first column for the date, so the metric indices align.
   return {
-    // The DAU table omits the date cell from its header row; the data row has
-    // the date first, so metric indices are shifted right by one.
-    grossDau: metricNumber(data[indexFor('DAU(グロス)') + 1], 'DAU（グロス）'),
+    grossDau: metricNumber(data[indexFor('DAU(グロス)')], 'DAU（グロス）'),
     ...Object.fromEntries(BOX_CODES.map((box) => [
-      `box${box}Dau`, metricNumber(data[indexFor(`${box}DAU`) + 1], `${box} DAU`),
+      `box${box}Dau`, metricNumber(data[indexFor(`${box}DAU`)], `${box} DAU`),
     ])),
   };
 }
