@@ -5,6 +5,7 @@ import * as cheerio from 'cheerio';
 import { google } from 'googleapis';
 import { inferReportHourFromTrigger, isReportSlotStale, reportDateForSlot, reportSlotJstLabel, reportSlotLagMinutes } from './report-slot-guard.js';
 import { parseGrossSales } from './gross-sales-report.js';
+import { boxColumnsFromHeader, parseDailyBoxDau, sendColumnsFromHeader, summaryMetricColumnsFromHeader } from './box-dau-layout.js';
 
 const LOGIN_URL = 'https://log.digicafe.jp/partner/';
 const REPORT_URL = 'https://log.digicafe.jp/partner/mailnum_uf';
@@ -34,6 +35,17 @@ function text(cell) {
 
 function headerName(cell) {
   return text(cell).replace(/[↑↓]/g, '');
+}
+
+function columnLetter(zeroBasedIndex) {
+  let index = zeroBasedIndex + 1;
+  let label = '';
+  while (index > 0) {
+    const remainder = (index - 1) % 26;
+    label = String.fromCharCode(65 + remainder) + label;
+    index = Math.floor((index - 1) / 26);
+  }
+  return label;
 }
 
 function jstDateParts(date = new Date()) {
@@ -524,9 +536,13 @@ function cumulativeUfReceive(html, hour) {
 function reportMetrics(html, date, hour) {
   const $ = cheerio.load(html);
   const hourlyRows = reportRows($, reportTable($, 'UF_MKT系データ(フォルダ別/時間毎)'));
+  const boxDau = parseDailyBoxDau(
+    reportRows($, reportTable($, 'UF_MKT系データ(フォルダ別DAU/日毎)')),
+    date.display,
+  );
   return {
     receivemails: summaryReportMetric($, '全体受信データ', ['メール総数']),
-    grossDau: dailyReportMetric($, 'UF_MKT系データ(フォルダ別DAU/日毎)', date, ['DAU（グロス）', 'DAU(グロス)']),
+    ...boxDau,
     mktReceivemails: cumulativeUfReceive(html, hour),
     boxAReceivemails: cumulativeHourlyMetric(hourlyRows, 'A受信', hour),
     boxBReceivemails: cumulativeHourlyMetric(hourlyRows, 'B受信', hour),
@@ -605,7 +621,8 @@ function locateTargetRow(values, date, hour, sheetName) {
     replaceTimeLabel = rowIndex >= 0;
   }
   if (rowIndex < 0) throw new Error(`${hour} o'clock row was not found in the ${date.label} DC block.`);
-  return { row: rowIndex + 1, replaceTimeLabel };
+  const metricColumns = summaryMetricColumnsFromHeader(values[timeHeaderIndex - 1] ?? []);
+  return { row: rowIndex + 1, replaceTimeLabel, metricColumns };
 }
 
 function locateBoxTargetRow(values, date, hour, sheetName) {
@@ -630,10 +647,10 @@ function locateBoxTargetRow(values, date, hour, sheetName) {
     replaceTimeLabel = rowIndex >= 0;
   }
   if (rowIndex < 0) throw new Error(`${hour} o'clock row was not found in the ${date.label} BOX table.`);
-  return { row: rowIndex + 1, replaceTimeLabel };
+  return { row: rowIndex + 1, header: values[boxHeaderIndex] ?? [], replaceTimeLabel };
 }
 
-function locateSendHeaderRow(values, date, sheetName) {
+function locateSendTable(values, date, sheetName) {
   const titleIndex = values.findIndex(([columnA, columnB]) => text(columnA).startsWith(date.label) && text(columnB) === 'DC');
   if (titleIndex < 0) throw new Error(`${date.label} DC block was not found in ${sheetName}.`);
 
@@ -641,7 +658,10 @@ function locateSendHeaderRow(values, date, sheetName) {
     && index < titleIndex + 50
     && columns.some((column) => text(column).startsWith('時間/')));
   if (sendHeaderIndex < 0) throw new Error(`The time table was not found below the ${date.label} DC block.`);
-  return sendHeaderIndex + 1;
+  return {
+    row: sendHeaderIndex + 1,
+    columns: sendColumnsFromHeader(values[sendHeaderIndex] ?? []),
+  };
 }
 
 function normalizeSheetName(value) {
@@ -677,7 +697,7 @@ function locateTodayResultTargets(values, date, nameToId, sheetName) {
     // 特定する。これにより結合セルの見出しが空として返っても影響を受けない。
     const nameColumn = values[index].findIndex((cell) => nameToId.has(text(cell)));
     // 右側の本日結果エリアだけを対象にし、シフト表内の同名は除外する。
-    if (nameColumn < 25) continue;
+    if (nameColumn < 41) continue;
     const name = text(values[index][nameColumn]);
     targets.push({ row: index + 1, name, accountId: nameToId.get(name) });
   }
@@ -688,7 +708,7 @@ function locateTodayResultTargets(values, date, nameToId, sheetName) {
 function locateTodayResultTimeRow(values, date, sheetName) {
   const titleIndex = values.findIndex(([columnA, columnB]) => text(columnA).startsWith(date.label) && text(columnB) === 'DC');
   if (titleIndex < 0) throw new Error(`${date.label} DC block was not found in ${sheetName}.`);
-  // The timestamp sits directly below the date row: e.g. 9/30 uses AG4842,
+  // The timestamp sits directly below the date row: e.g. 9/30 uses AW4842,
   // immediately under the 本日結果 heading in AG4841.
   return titleIndex + 2;
 }
@@ -710,14 +730,15 @@ async function updateSheet(metrics, hour, date, canRunForSlot) {
   const executionTime = currentTimeJst();
   const results = [];
   for (const sheetName of SHEET_NAMES) {
-    const range = `'${sheetName}'!A:AJ`;
+    const range = `'${sheetName}'!A:AZ`;
     const source = await sheets.spreadsheets.values.get({ spreadsheetId, range });
     const values = source.data.values ?? [];
     const target = locateTargetRow(values, date, hour, sheetName);
     const boxTarget = locateBoxTargetRow(values, date, hour, sheetName);
     const row = target.row;
     const boxRow = boxTarget.row;
-    const sendHeaderRow = locateSendHeaderRow(values, date, sheetName);
+    const boxColumns = boxColumnsFromHeader(boxTarget.header);
+    const sendTable = locateSendTable(values, date, sheetName);
     const sendRow = row;
     const todayResultTargets = locateTodayResultTargets(values, date, nameToId, sheetName);
     const todayResultTimeRow = locateTodayResultTimeRow(values, date, sheetName);
@@ -725,7 +746,7 @@ async function updateSheet(metrics, hour, date, canRunForSlot) {
       const stats = metrics.accountSendStats.get(target.accountId);
       if (!stats) throw new Error(`${target.name} (${target.accountId}) の本日送信実績が管理画面にありません。`);
       return {
-        range: `'${sheetName}'!AG${target.row}:AI${target.row}`,
+        range: `'${sheetName}'!AW${target.row}:AY${target.row}`,
         values: [[stats.interaction, stats.individual, stats.broadcast]],
       };
     });
@@ -738,23 +759,27 @@ async function updateSheet(metrics, hour, date, canRunForSlot) {
         data: [
           ...(target.replaceTimeLabel ? [{ range: `'${sheetName}'!A${row}`, values: [[hour]] }] : []),
           ...(boxTarget.replaceTimeLabel ? [{ range: `'${sheetName}'!A${boxRow}`, values: [[hour]] }] : []),
-          { range: `'${sheetName}'!C${row}`, values: [[metrics.receivemails]] },
-          { range: `'${sheetName}'!E${row}`, values: [[metrics.mktReceivemails]] },
-          { range: `'${sheetName}'!I${row}`, values: [[metrics.grossDau]] },
-          { range: `'${sheetName}'!S${row}`, values: [[metrics.grossSales]] },
-          { range: `'${sheetName}'!C${boxRow}`, values: [[metrics.boxAReceivemails]] },
-          { range: `'${sheetName}'!E${boxRow}`, values: [[metrics.boxBReceivemails]] },
-          { range: `'${sheetName}'!G${boxRow}`, values: [[metrics.boxCReceivemails]] },
-          { range: `'${sheetName}'!I${boxRow}`, values: [[metrics.boxEReceivemails]] },
-          { range: `'${sheetName}'!K${boxRow}`, values: [[metrics.boxIReceivemails]] },
-          { range: `'${sheetName}'!M${boxRow}`, values: [[metrics.boxJReceivemails]] },
-          { range: `'${sheetName}'!O${boxRow}`, values: [[metrics.boxMReceivemails]] },
-          { range: `'${sheetName}'!Q${boxRow}`, values: [[metrics.boxQReceivemails]] },
-          { range: `'${sheetName}'!K${sendHeaderRow}:P${sendHeaderRow}`, values: [['送信数', 'A', 'B', 'C', 'E', '全体']] },
-          { range: `'${sheetName}'!L${sendRow}:P${sendRow}`, values: [[
-            metrics.boxASend, metrics.boxBSend, metrics.boxCSend, metrics.boxESend, metrics.sendTotal,
-          ]] },
-          { range: `'${sheetName}'!AG${todayResultTimeRow}`, values: [[executionTime]] },
+          { range: `'${sheetName}'!${columnLetter(target.metricColumns.grossReceiveIndex)}${row}`, values: [[metrics.receivemails]] },
+          { range: `'${sheetName}'!${columnLetter(target.metricColumns.ufReceiveIndex)}${row}`, values: [[metrics.mktReceivemails]] },
+          { range: `'${sheetName}'!${columnLetter(target.metricColumns.grossDauIndex)}${row}`, values: [[metrics.grossDau]] },
+          { range: `'${sheetName}'!AI${row}`, values: [[metrics.grossSales]] },
+          ...[
+            ['A', metrics.boxAReceivemails], ['B', metrics.boxBReceivemails],
+            ['C', metrics.boxCReceivemails], ['E', metrics.boxEReceivemails],
+            ['I', metrics.boxIReceivemails], ['J', metrics.boxJReceivemails],
+            ['M', metrics.boxMReceivemails], ['Q', metrics.boxQReceivemails],
+          ].flatMap(([box, receiveValue]) => [
+            { range: `'${sheetName}'!${columnLetter(boxColumns[box].receiveIndex)}${boxRow}`, values: [[receiveValue]] },
+            { range: `'${sheetName}'!${columnLetter(boxColumns[box].dauIndex)}${boxRow}`, values: [[metrics[`box${box}Dau`]]] },
+          ]),
+          ...[
+            ['A', metrics.boxASend], ['B', metrics.boxBSend], ['C', metrics.boxCSend],
+            ['E', metrics.boxESend], ['全体', metrics.sendTotal],
+          ].map(([label, value]) => ({
+            range: `'${sheetName}'!${columnLetter(sendTable.columns[label])}${sendRow}`,
+            values: [[value]],
+          })),
+          { range: `'${sheetName}'!AW${todayResultTimeRow}`, values: [[executionTime]] },
           ...todayResultWrites,
         ],
       },
@@ -776,7 +801,7 @@ async function updateTodayResults(accountSendStats, date) {
   const results = [];
 
   for (const sheetName of SHEET_NAMES) {
-    const source = await sheets.spreadsheets.values.get({ spreadsheetId, range: `'${sheetName}'!A:AJ` });
+    const source = await sheets.spreadsheets.values.get({ spreadsheetId, range: `'${sheetName}'!A:AZ` });
     const values = source.data.values ?? [];
     const targets = locateTodayResultTargets(values, date, nameToId, sheetName);
     const todayResultTimeRow = locateTodayResultTimeRow(values, date, sheetName);
@@ -784,12 +809,12 @@ async function updateTodayResults(accountSendStats, date) {
       const stats = accountSendStats.get(target.accountId);
       if (!stats) throw new Error(`${target.name} (${target.accountId}) の本日送信実績が管理画面にありません。`);
       return {
-        range: `'${sheetName}'!AG${target.row}:AI${target.row}`,
+        range: `'${sheetName}'!AW${target.row}:AY${target.row}`,
         values: [[stats.interaction, stats.individual, stats.broadcast]],
       };
     });
     writes.push({
-      range: `'${sheetName}'!AG${todayResultTimeRow}`,
+      range: `'${sheetName}'!AW${todayResultTimeRow}`,
       values: [[executionTime]],
     });
     await sheets.spreadsheets.values.batchUpdate({

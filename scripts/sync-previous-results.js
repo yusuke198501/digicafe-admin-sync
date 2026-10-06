@@ -101,14 +101,14 @@ async function main() {
   const sheets = await sheetsClient();
   const targets = await findTargets(sheets, reportDay);
   const data = targets.map((target) => ({
-    range: `'${SHEET_NAME}'!CG${target.row}`,
+    range: `'${SHEET_NAME}'!CW${target.row}`,
     values: [[shortDate(target.prior)]],
   }));
   await sheets.spreadsheets.values.batchUpdate({
     spreadsheetId: SPREADSHEET_ID,
     requestBody: { valueInputOption: 'RAW', data },
   });
-  console.log(`${shortDate(reportDay)} の前回出勤日をCG列に ${targets.length} 人分更新しました。T/U列の実績は更新していません。`);
+  console.log(`${shortDate(reportDay)} の前回出勤日をCW列に ${targets.length} 人分更新しました。T/U列の実績は更新していません。`);
 }
 
 main().catch((error) => {
