@@ -14,6 +14,11 @@ test('reads a row-oriented metric when the filtered report labels the value', ()
   assert.equal(parseGrossSales(html, date), 98765);
 });
 
+test('reads 売上 under the グロス group in the status/pt table', () => {
+  const html = '<table><tr><th colspan="2">グロス</th><th colspan="2">有料男性</th></tr><tr><th>日時</th><th>売上</th><th>売上</th><th>課金者数</th></tr><tr><td>2026-10-06</td><td>650,660</td><td>649,330</td><td>129</td></tr></table>';
+  assert.equal(parseGrossSales(html, date), 650660);
+});
+
 test('does not use a different date from a multi-day table', () => {
   const html = '<table><tr><th>日付</th><th>グロス売上</th></tr><tr><td>2026/10/05</td><td>111</td></tr></table>';
   assert.throws(() => parseGrossSales(html, date), /グロス売上.*見つかりません/);

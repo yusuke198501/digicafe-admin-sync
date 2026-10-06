@@ -35,6 +35,25 @@ export function parseGrossSales(html, date) {
   for (const table of $('table').toArray()) {
     const rows = tableRows($, table);
 
+    // status/pt currently renders a grouped header: "グロス" is the parent
+    // column group, and the following header row labels its first amount as
+    // "売上" (not "グロス売上"). The date column is followed by the gross
+    // sales column in that group.
+    const grossGroupIndex = rows.findIndex((row) => row.some((cell) => compact(cell) === 'グロス'));
+    if (grossGroupIndex >= 0) {
+      for (const header of rows.slice(grossGroupIndex + 1, grossGroupIndex + 4)) {
+        const headerLabel = (cell) => String(cell ?? '').replace(/\s/g, '');
+        const dateIndex = header.findIndex((cell) => ['日時', '日付', '年月日'].includes(headerLabel(cell)));
+        if (dateIndex < 0 || headerLabel(header[dateIndex + 1]) !== '売上') continue;
+        for (const row of rows.slice(rows.indexOf(header) + 1)) {
+          if (dateKey(row[dateIndex]) !== expectedDate) continue;
+          const value = numberValue(row[dateIndex + 1]);
+          if (value !== null) candidates.push(value);
+        }
+        break;
+      }
+    }
+
     // Tabular layout: a header contains the metric, with a separate date row.
     for (let headerIndex = 0; headerIndex < rows.length; headerIndex += 1) {
       const metricIndex = rows[headerIndex].findIndex((cell) => compact(cell) === 'グロス売上');
