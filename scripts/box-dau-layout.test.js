@@ -37,6 +37,18 @@ test('finds send metrics by label even when global column inserts spaced them ap
   assert.deepEqual(columns, { A: 5, B: 6, C: 8, E: 9, '全体': 12 });
 });
 
+test('finds compact send metrics and the adjacent goal column by header', () => {
+  const header = ['時間/合計', ...Array(17).fill(''), '送信数', 'A', 'B', 'C', 'E', '全体', '目標'];
+  assert.deepEqual(sendColumnsFromHeader(header), {
+    A: 19,
+    B: 20,
+    C: 21,
+    E: 22,
+    '全体': 23,
+    '目標': 24,
+  });
+});
+
 test('finds daily summary write columns by header before and after the layout is compacted', () => {
   const oldLayout = ['受信数', 'グロス目標', 'グロス', '', '', 'UF目標', 'UF', '', '', '一般目標', '一般', '', '', 'DAU', ''];
   const compactLayout = ['受信数', 'グロス目標', 'グロス', 'UF目標', 'UF', '一般目標', '一般', 'DAU', ''];

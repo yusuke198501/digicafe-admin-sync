@@ -48,11 +48,14 @@ export function sendColumnsFromHeader(header) {
   const labels = header.map(normalize);
   const sendIndex = labels.indexOf('送信数');
   if (sendIndex < 0) throw new Error('送信表の「送信数」見出しがありません。');
-  return Object.fromEntries(['A', 'B', 'C', 'E', '全体'].map((label) => {
+  const columns = Object.fromEntries(['A', 'B', 'C', 'E', '全体'].map((label) => {
     const index = labels.findIndex((value, i) => i > sendIndex && value === normalize(label));
     if (index < 0) throw new Error(`送信表の「${label}」見出しがありません。`);
     return [label, index];
   }));
+  const goalIndex = labels.findIndex((value, i) => i > sendIndex && value === '目標');
+  if (goalIndex >= 0) columns['目標'] = goalIndex;
+  return columns;
 }
 
 export function summaryMetricColumnsFromHeader(header) {
