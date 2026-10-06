@@ -49,6 +49,18 @@ test('finds compact send metrics and the adjacent goal column by header', () => 
   });
 });
 
+test('finds send metrics when the send table is moved to columns K:Q', () => {
+  const header = ['時間/合計', ...Array(9).fill(''), '送信数', 'A', 'B', 'C', 'E', '全体', '目標'];
+  assert.deepEqual(sendColumnsFromHeader(header), {
+    A: 11,
+    B: 12,
+    C: 13,
+    E: 14,
+    '全体': 15,
+    '目標': 16,
+  });
+});
+
 test('finds daily summary write columns by header before and after the layout is compacted', () => {
   const oldLayout = ['受信数', 'グロス目標', 'グロス', '', '', 'UF目標', 'UF', '', '', '一般目標', '一般', '', '', 'DAU', ''];
   const compactLayout = ['受信数', 'グロス目標', 'グロス', 'UF目標', 'UF', '一般目標', '一般', 'DAU', ''];
