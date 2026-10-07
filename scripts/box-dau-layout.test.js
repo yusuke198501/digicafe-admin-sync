@@ -81,6 +81,27 @@ test('finds send metrics when the send table is moved to columns K:Q', () => {
   });
 });
 
+test('finds the added I, J, M, and Q send columns in the 10/7 layout', () => {
+  const header = ['時間/合計', ...Array(9).fill(''), '送信数', 'A', 'B', 'C', 'E', 'I', 'J', 'M', 'Q', '全体', '目標'];
+  assert.deepEqual(sendColumnsFromHeader(header), {
+    A: 11,
+    B: 12,
+    C: 13,
+    E: 14,
+    I: 15,
+    J: 16,
+    M: 17,
+    Q: 18,
+    '全体': 19,
+    '目標': 20,
+  });
+});
+
+test('rejects a partially added set of send BOX headers', () => {
+  const header = ['時間/合計', ...Array(9).fill(''), '送信数', 'A', 'B', 'C', 'E', 'I', '全体', '目標'];
+  assert.throws(() => sendColumnsFromHeader(header), /追加BOX見出しが不足/);
+});
+
 test('finds daily summary write columns by header before and after the layout is compacted', () => {
   const oldLayout = ['受信数', 'グロス目標', 'グロス', '', '', 'UF目標', 'UF', '', '', '一般目標', '一般', '', '', 'DAU', ''];
   const compactLayout = ['受信数', 'グロス目標', 'グロス', 'UF目標', 'UF', '一般目標', '一般', 'DAU', ''];

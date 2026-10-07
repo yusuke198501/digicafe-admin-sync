@@ -557,6 +557,10 @@ function reportMetrics(html, date, hour) {
     boxBSend: cumulativeHourlyMetric(hourlyRows, 'Bやり取り', hour),
     boxCSend: cumulativeHourlyMetric(hourlyRows, 'Cやり取り', hour),
     boxESend: cumulativeHourlyMetric(hourlyRows, 'Eやり取り', hour),
+    boxISend: cumulativeHourlyMetric(hourlyRows, 'Iやり取り', hour),
+    boxJSend: cumulativeHourlyMetric(hourlyRows, 'Jやり取り', hour),
+    boxMSend: cumulativeHourlyMetric(hourlyRows, 'Mやり取り', hour),
+    boxQSend: cumulativeHourlyMetric(hourlyRows, 'Qやり取り', hour),
     accountSendStats: loginAccountDailyStats(html, date),
   };
 }
@@ -778,8 +782,9 @@ async function updateSheet(metrics, hour, date, canRunForSlot) {
           ]),
           ...[
             ['A', metrics.boxASend], ['B', metrics.boxBSend], ['C', metrics.boxCSend],
-            ['E', metrics.boxESend], ['全体', metrics.sendTotal],
-          ].map(([label, value]) => ({
+            ['E', metrics.boxESend], ['I', metrics.boxISend], ['J', metrics.boxJSend],
+            ['M', metrics.boxMSend], ['Q', metrics.boxQSend], ['全体', metrics.sendTotal],
+          ].filter(([label]) => sendTable.columns[label] !== undefined).map(([label, value]) => ({
             range: `'${sheetName}'!${columnLetter(sendTable.columns[label])}${sendRow}`,
             values: [[value]],
           })),
@@ -877,7 +882,7 @@ async function main() {
   const updatedSheets = await updateSheet(metrics, hour, date, canRunForSlot);
   if (!updatedSheets) return;
   const destination = updatedSheets.map(({ sheetName, row, boxRow, sendRow, todayResultCount }) => `${sheetName}: row ${row}, box row ${boxRow}, send row ${sendRow}, today results ${todayResultCount}`).join('; ');
-  console.log(`${date.label} ${hour}:00 -> ${destination}; all_receive=${metrics.receivemails}, uf_receive=${metrics.mktReceivemails}, gross_dau=${metrics.grossDau}, gross_sales=${metrics.grossSales}, send_a=${metrics.boxASend}, send_b=${metrics.boxBSend}, send_c=${metrics.boxCSend}, send_e=${metrics.boxESend}, send_total=${metrics.sendTotal}; source=${date.display}`);
+  console.log(`${date.label} ${hour}:00 -> ${destination}; all_receive=${metrics.receivemails}, uf_receive=${metrics.mktReceivemails}, gross_dau=${metrics.grossDau}, gross_sales=${metrics.grossSales}, send_a=${metrics.boxASend}, send_b=${metrics.boxBSend}, send_c=${metrics.boxCSend}, send_e=${metrics.boxESend}, send_i=${metrics.boxISend}, send_j=${metrics.boxJSend}, send_m=${metrics.boxMSend}, send_q=${metrics.boxQSend}, send_total=${metrics.sendTotal}; source=${date.display}`);
 }
 
 main().catch((error) => {

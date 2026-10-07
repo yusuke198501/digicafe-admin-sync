@@ -63,11 +63,21 @@ export function sendColumnsFromHeader(header) {
   const labels = header.map(normalize);
   const sendIndex = labels.indexOf('送信数');
   if (sendIndex < 0) throw new Error('送信表の「送信数」見出しがありません。');
-  const columns = Object.fromEntries(['A', 'B', 'C', 'E', '全体'].map((label) => {
+  const baseLabels = ['A', 'B', 'C', 'E', '全体'];
+  const columns = Object.fromEntries(baseLabels.map((label) => {
     const index = labels.findIndex((value, i) => i > sendIndex && value === normalize(label));
     if (index < 0) throw new Error(`送信表の「${label}」見出しがありません。`);
     return [label, index];
   }));
+  const extendedLabels = ['I', 'J', 'M', 'Q'];
+  const foundExtendedLabels = extendedLabels.filter((label) => labels.some((value, i) => i > sendIndex && value === label));
+  if (foundExtendedLabels.length > 0 && foundExtendedLabels.length !== extendedLabels.length) {
+    const missing = extendedLabels.filter((label) => !foundExtendedLabels.includes(label));
+    throw new Error(`送信表の追加BOX見出しが不足しています: ${missing.join(', ')}`);
+  }
+  for (const label of foundExtendedLabels) {
+    columns[label] = labels.findIndex((value, i) => i > sendIndex && value === label);
+  }
   const goalIndex = labels.findIndex((value, i) => i > sendIndex && value === '目標');
   if (goalIndex >= 0) columns['目標'] = goalIndex;
   return columns;
