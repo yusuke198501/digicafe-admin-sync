@@ -5,7 +5,7 @@ import * as cheerio from 'cheerio';
 import { google } from 'googleapis';
 import { inferReportHourFromTrigger, isReportSlotStale, reportDateForSlot, reportSlotJstLabel, reportSlotLagMinutes } from './report-slot-guard.js';
 import { parseGrossSales } from './gross-sales-report.js';
-import { boxColumnsFromHeader, parseDailyBoxDau, sendColumnsFromHeader, summaryMetricColumnsFromHeader } from './box-dau-layout.js';
+import { boxColumnsFromHeader, boxMetricHeader, parseDailyBoxDau, sendColumnsFromHeader, summaryMetricColumnsFromHeader } from './box-dau-layout.js';
 
 const LOGIN_URL = 'https://log.digicafe.jp/partner/';
 const REPORT_URL = 'https://log.digicafe.jp/partner/mailnum_uf';
@@ -647,7 +647,11 @@ function locateBoxTargetRow(values, date, hour, sheetName) {
     replaceTimeLabel = rowIndex >= 0;
   }
   if (rowIndex < 0) throw new Error(`${hour} o'clock row was not found in the ${date.label} BOX table.`);
-  return { row: rowIndex + 1, header: values[boxHeaderIndex] ?? [], replaceTimeLabel };
+  return {
+    row: rowIndex + 1,
+    header: boxMetricHeader(values[boxHeaderIndex] ?? [], values[boxHeaderIndex - 1] ?? []),
+    replaceTimeLabel,
+  };
 }
 
 function locateSendTable(values, date, sheetName) {
