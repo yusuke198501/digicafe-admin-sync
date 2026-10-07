@@ -44,15 +44,19 @@ export function boxColumnsFromHeader(header) {
   }));
 }
 
-export function boxMetricHeader(markerHeader, precedingHeader) {
+export function boxColumnsFromTableHeaders(markerHeader, precedingHeader) {
   const precedingLabels = precedingHeader.map(normalize);
   // In the current two-tier sheet layout, the metric labels (A受信, ADAU,
-  // etc.) are one row above the BOX別 / 目標 / 進捗 labels. Older blocks
-  // may still keep the metric labels on the BOX別 row itself.
+  // etc.) are one row above BOX別 / 目標 / 進捗. Each metric spans a goal
+  // and an actual column, so actuals are one column to the right of labels.
   if (precedingLabels.includes('A受信') && precedingLabels.includes('ADAU')) {
-    return precedingHeader;
+    return Object.fromEntries(Object.entries(boxColumnsFromHeader(precedingHeader)).map(([box, columns]) => [
+      box,
+      { receiveIndex: columns.receiveIndex + 1, dauIndex: columns.dauIndex + 1 },
+    ]));
   }
-  return markerHeader;
+  // Older blocks keep explicit field labels in the BOX別 header itself.
+  return boxColumnsFromHeader(markerHeader);
 }
 
 export function sendColumnsFromHeader(header) {

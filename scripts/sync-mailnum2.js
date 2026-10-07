@@ -5,7 +5,7 @@ import * as cheerio from 'cheerio';
 import { google } from 'googleapis';
 import { inferReportHourFromTrigger, isReportSlotStale, parseExplicitReportDate, reportDateForSlot, reportSlotJstLabel, reportSlotLagMinutes } from './report-slot-guard.js';
 import { parseGrossSales } from './gross-sales-report.js';
-import { boxColumnsFromHeader, boxMetricHeader, parseDailyBoxDau, sendColumnsFromHeader, summaryMetricColumnsFromHeader } from './box-dau-layout.js';
+import { boxColumnsFromTableHeaders, parseDailyBoxDau, sendColumnsFromHeader, summaryMetricColumnsFromHeader } from './box-dau-layout.js';
 
 const LOGIN_URL = 'https://log.digicafe.jp/partner/';
 const REPORT_URL = 'https://log.digicafe.jp/partner/mailnum_uf';
@@ -649,7 +649,7 @@ function locateBoxTargetRow(values, date, hour, sheetName) {
   if (rowIndex < 0) throw new Error(`${hour} o'clock row was not found in the ${date.label} BOX table.`);
   return {
     row: rowIndex + 1,
-    header: boxMetricHeader(values[boxHeaderIndex] ?? [], values[boxHeaderIndex - 1] ?? []),
+    columns: boxColumnsFromTableHeaders(values[boxHeaderIndex] ?? [], values[boxHeaderIndex - 1] ?? []),
     replaceTimeLabel,
   };
 }
@@ -741,7 +741,7 @@ async function updateSheet(metrics, hour, date, canRunForSlot) {
     const boxTarget = locateBoxTargetRow(values, date, hour, sheetName);
     const row = target.row;
     const boxRow = boxTarget.row;
-    const boxColumns = boxColumnsFromHeader(boxTarget.header);
+    const boxColumns = boxTarget.columns;
     const sendTable = locateSendTable(values, date, sheetName);
     const sendRow = row;
     const todayResultTargets = locateTodayResultTargets(values, date, nameToId, sheetName);
