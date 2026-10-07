@@ -1,5 +1,26 @@
 const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
 
+export function parseExplicitReportDate(value) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value ?? ''));
+  if (!match) throw new Error(`Invalid report date: ${value}`);
+  const [, yearText, monthText, dayText] = match;
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() + 1 !== month || date.getUTCDate() !== day) {
+    throw new Error(`Invalid report date: ${value}`);
+  }
+  return {
+    year,
+    month,
+    day,
+    label: `${month}/${day}`,
+    iso: String(value),
+    display: `${yearText}/${monthText}/${dayText}`,
+  };
+}
+
 export function inferReportHourFromTrigger(triggerTime) {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: 'Asia/Tokyo', hourCycle: 'h23', hour: '2-digit', minute: '2-digit',

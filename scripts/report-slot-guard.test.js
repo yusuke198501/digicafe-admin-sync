@@ -1,6 +1,22 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { inferReportHourFromTrigger, isReportSlotStale, reportDateForSlot, reportSlotJstLabel, reportSlotLagMinutes } from './report-slot-guard.js';
+import { inferReportHourFromTrigger, isReportSlotStale, parseExplicitReportDate, reportDateForSlot, reportSlotJstLabel, reportSlotLagMinutes } from './report-slot-guard.js';
+
+test('parses an explicitly selected report date for a backfill', () => {
+  assert.deepEqual(parseExplicitReportDate('2026-10-06'), {
+    year: 2026,
+    month: 10,
+    day: 6,
+    label: '10/6',
+    iso: '2026-10-06',
+    display: '2026/10/06',
+  });
+});
+
+test('rejects malformed and impossible explicit report dates', () => {
+  assert.throws(() => parseExplicitReportDate('2026-2-6'), /Invalid report date/);
+  assert.throws(() => parseExplicitReportDate('2026-02-30'), /Invalid report date/);
+});
 
 test('infers the slot from the original dispatch time, not the delayed runner start', () => {
   assert.equal(inferReportHourFromTrigger('2026-10-02T00:05:04Z'), 9); // 09:05 JST
