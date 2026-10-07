@@ -3,7 +3,7 @@ import { wrapper } from 'axios-cookiejar-support';
 import { CookieJar } from 'tough-cookie';
 import * as cheerio from 'cheerio';
 import { google } from 'googleapis';
-import { inferReportHourFromTrigger, isReportSlotStale, reportDateForSlot, reportSlotJstLabel, reportSlotLagMinutes } from './report-slot-guard.js';
+import { inferReportHourFromTrigger, isReportSlotStale, parseExplicitReportDate, reportDateForSlot, reportSlotJstLabel, reportSlotLagMinutes } from './report-slot-guard.js';
 import { parseGrossSales } from './gross-sales-report.js';
 import { boxColumnsFromHeader, boxMetricHeader, parseDailyBoxDau, sendColumnsFromHeader, summaryMetricColumnsFromHeader } from './box-dau-layout.js';
 
@@ -844,12 +844,20 @@ async function main() {
     && !process.env.REPORT_HOUR
     ? await workflowDispatchCreatedAt()
     : null;
+  if (process.env.REPORT_DATE && !process.env.REPORT_HOUR) {
+    throw new Error('REPORT_HOUR is required when REPORT_DATE is specified.');
+  }
+  if (process.env.REPORT_DATE && process.env.GITHUB_EVENT_NAME !== 'workflow_dispatch') {
+    throw new Error('REPORT_DATE is only allowed for workflow_dispatch.');
+  }
   const hour = reportHour(dispatchCreatedAt);
-  const date = reportDateForSlot(
-    hour,
-    dispatchCreatedAt ? new Date(dispatchCreatedAt) : new Date(),
-    process.env.GITHUB_EVENT_NAME === 'schedule',
-  );
+  const date = process.env.REPORT_DATE
+    ? parseExplicitReportDate(process.env.REPORT_DATE)
+    : reportDateForSlot(
+      hour,
+      dispatchCreatedAt ? new Date(dispatchCreatedAt) : new Date(),
+      process.env.GITHUB_EVENT_NAME === 'schedule',
+    );
 
   const allowStaleExplicitRun = Boolean(process.env.REPORT_HOUR)
     && process.env.ALLOW_STALE_REPORT === 'true';
