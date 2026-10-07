@@ -44,6 +44,17 @@ export function boxColumnsFromHeader(header) {
   }));
 }
 
+export function boxMetricHeader(markerHeader, precedingHeader) {
+  const precedingLabels = precedingHeader.map(normalize);
+  // In the current two-tier sheet layout, the metric labels (A受信, ADAU,
+  // etc.) are one row above the BOX別 / 目標 / 進捗 labels. Older blocks
+  // may still keep the metric labels on the BOX別 row itself.
+  if (precedingLabels.includes('A受信') && precedingLabels.includes('ADAU')) {
+    return precedingHeader;
+  }
+  return markerHeader;
+}
+
 export function sendColumnsFromHeader(header) {
   const labels = header.map(normalize);
   const sendIndex = labels.indexOf('送信数');

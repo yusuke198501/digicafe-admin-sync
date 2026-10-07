@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { boxColumnsFromHeader, boxHeaderLabels, parseDailyBoxDau, sendColumnsFromHeader, summaryMetricColumnsFromHeader } from './box-dau-layout.js';
+import { boxColumnsFromHeader, boxHeaderLabels, boxMetricHeader, parseDailyBoxDau, sendColumnsFromHeader, summaryMetricColumnsFromHeader } from './box-dau-layout.js';
 
 test('parses gross and each configured box DAU by its table header', () => {
   const rows = [
@@ -17,6 +17,25 @@ test('parses gross and each configured box DAU by its table header', () => {
     boxJDau: 98,
     boxMDau: 109,
     boxQDau: 118,
+  });
+});
+
+test('uses metric labels above the BOX別/目標/進捗 row in the current two-tier layout', () => {
+  const metricHeader = ['', ...boxHeaderLabels()];
+  const markerHeader = ['BOX別', ...Array(32).fill('目標')];
+  assert.equal(boxMetricHeader(markerHeader, metricHeader), metricHeader);
+  assert.deepEqual(boxColumnsFromHeader(boxMetricHeader(markerHeader, metricHeader)).A, {
+    receiveIndex: 2,
+    dauIndex: 4,
+  });
+});
+
+test('keeps using metric labels on the BOX別 row for older blocks', () => {
+  const legacyHeader = ['BOX別', ...boxHeaderLabels()];
+  assert.equal(boxMetricHeader(legacyHeader, ['時間/合計']), legacyHeader);
+  assert.deepEqual(boxColumnsFromHeader(boxMetricHeader(legacyHeader, ['時間/合計'])).A, {
+    receiveIndex: 2,
+    dauIndex: 4,
   });
 });
 
