@@ -4,7 +4,7 @@ import { CookieJar } from 'tough-cookie';
 import * as cheerio from 'cheerio';
 import { google } from 'googleapis';
 import { inferReportHourFromTrigger, isReportSlotStale, parseExplicitReportDate, reportDateForSlot, reportSlotJstLabel, reportSlotLagMinutes } from './report-slot-guard.js';
-import { parseGrossSales } from './gross-sales-report.js';
+import { parseGrossSales, parsePaidMaleAllUsagePt } from './gross-sales-report.js';
 import { boxColumnsFromTableHeaders, parseDailyBoxDau, sendColumnsFromHeader, summaryMetricColumnsFromHeader } from './box-dau-layout.js';
 import { cumulativeLoginAccountMetrics } from './login-account-hourly.js';
 
@@ -575,6 +575,7 @@ async function fetchReportMetrics(date, hour) {
   return {
     ...reportMetrics(response.data, date, hour),
     grossSales: parseGrossSales(salesResponse.data, date),
+    paidMaleAllUsagePt: parsePaidMaleAllUsagePt(salesResponse.data, date),
   };
 }
 
@@ -793,6 +794,7 @@ async function updateSheet(metrics, hour, date, canRunForSlot) {
           { range: `'${sheetName}'!AI${row}`, values: [[metrics.grossSales]] },
           { range: `'${sheetName}'!AC${individualRow}`, values: [[metrics.individualSend]] },
           { range: `'${sheetName}'!AE${individualRow}`, values: [[metrics.individualReceive]] },
+          { range: `'${sheetName}'!AJ${row}`, values: [[metrics.paidMaleAllUsagePt]] },
           ...[
             ['A', metrics.boxAReceivemails], ['B', metrics.boxBReceivemails],
             ['C', metrics.boxCReceivemails], ['E', metrics.boxEReceivemails],
@@ -904,7 +906,7 @@ async function main() {
   const updatedSheets = await updateSheet(metrics, hour, date, canRunForSlot);
   if (!updatedSheets) return;
   const destination = updatedSheets.map(({ sheetName, row, boxRow, individualRow, sendRow, todayResultCount }) => `${sheetName}: row ${row}, box row ${boxRow}, individual row ${individualRow}, send row ${sendRow}, today results ${todayResultCount}`).join('; ');
-  console.log(`${date.label} ${hour}:00 -> ${destination}; all_receive=${metrics.receivemails}, uf_receive=${metrics.mktReceivemails}, individual_send=${metrics.individualSend}, individual_receive=${metrics.individualReceive}, gross_dau=${metrics.grossDau}, gross_sales=${metrics.grossSales}, send_a=${metrics.boxASend}, send_b=${metrics.boxBSend}, send_c=${metrics.boxCSend}, send_e=${metrics.boxESend}, send_i=${metrics.boxISend}, send_j=${metrics.boxJSend}, send_m=${metrics.boxMSend}, send_q=${metrics.boxQSend}, send_total=${metrics.sendTotal}; source=${date.display}`);
+  console.log(`${date.label} ${hour}:00 -> ${destination}; all_receive=${metrics.receivemails}, uf_receive=${metrics.mktReceivemails}, individual_send=${metrics.individualSend}, individual_receive=${metrics.individualReceive}, gross_dau=${metrics.grossDau}, gross_sales=${metrics.grossSales}, paid_male_all_usage_pt=${metrics.paidMaleAllUsagePt}, send_a=${metrics.boxASend}, send_b=${metrics.boxBSend}, send_c=${metrics.boxCSend}, send_e=${metrics.boxESend}, send_i=${metrics.boxISend}, send_j=${metrics.boxJSend}, send_m=${metrics.boxMSend}, send_q=${metrics.boxQSend}, send_total=${metrics.sendTotal}; source=${date.display}`);
 }
 
 main().catch((error) => {

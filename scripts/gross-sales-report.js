@@ -94,3 +94,54 @@ export function parseGrossSales(html, date) {
   }
   return unique[0];
 }
+
+/** Extract the exact-date 有料男性「全利用Pt」 value as a positive number. */
+export function parsePaidMaleAllUsagePt(html, date) {
+  const $ = cheerio.load(html);
+  const expectedDate = dateKey(date.display ?? date.iso);
+  const candidates = [];
+
+  for (const table of $('table').toArray()) {
+    const rows = tableRows($, table);
+    const groupRows = rows
+      .map((row, index) => ({ row, index }))
+      .filter(({ row }) => row.some((cell) => String(cell ?? '').replace(/\s/g, '') === '有料男性'));
+
+    for (const { row: groups, index: groupIndex } of groupRows) {
+      const paidMaleIndexes = groups
+        .map((group, index) => group === '有料男性' ? index : -1)
+        .filter((index) => index >= 0);
+      if (!paidMaleIndexes.length) continue;
+
+      for (const header of rows.slice(groupIndex + 1, groupIndex + 4)) {
+        const headerIndex = rows.indexOf(header);
+        const normalize = (cell) => String(cell ?? '').replace(/\s/g, '');
+        const dateIndex = header.findIndex((cell) => ['日時', '日付', '年月日'].includes(normalize(cell)));
+        if (dateIndex < 0) continue;
+
+        const metricIndexes = header
+          .map((cell, index) => normalize(cell) === '全利用Pt' && groups[index] === '有料男性' ? index : -1)
+          .filter((index) => index >= 0 && index !== dateIndex);
+        if (!metricIndexes.length) continue;
+
+        for (const dataRow of rows.slice(headerIndex + 1)) {
+          if (dateKey(dataRow[dateIndex]) !== expectedDate) continue;
+          for (const metricIndex of metricIndexes) {
+            const value = numberValue(dataRow[metricIndex]);
+            if (value !== null) candidates.push(Math.abs(value));
+          }
+        }
+        break;
+      }
+    }
+  }
+
+  if (!candidates.length) {
+    throw new Error(`status/pt の ${date.display ?? date.iso} に有料男性の「全利用Pt」が見つかりません。`);
+  }
+  const unique = [...new Set(candidates)];
+  if (unique.length !== 1) {
+    throw new Error(`status/pt の有料男性「全利用Pt」が一意に決まりません。候補: ${unique.join(', ')}`);
+  }
+  return unique[0];
+}
