@@ -6,6 +6,7 @@ import { google } from 'googleapis';
 import { inferReportHourFromTrigger, isReportSlotStale, parseExplicitReportDate, reportDateForSlot, reportSlotJstLabel, reportSlotLagMinutes } from './report-slot-guard.js';
 import { parseGrossSales } from './gross-sales-report.js';
 import { boxColumnsFromTableHeaders, parseDailyBoxDau, sendColumnsFromHeader, summaryMetricColumnsFromHeader } from './box-dau-layout.js';
+import { cumulativeLoginAccountMetrics } from './login-account-hourly.js';
 
 const LOGIN_URL = 'https://log.digicafe.jp/partner/';
 const REPORT_URL = 'https://log.digicafe.jp/partner/mailnum_uf';
@@ -511,26 +512,10 @@ function cumulativeHourlyMetric(rows, header, hour) {
     .reduce((total, row) => total + metricNumber(row[headerIndex], header), 0);
 }
 
-function cumulativeUfReceive(html, hour) {
+function cumulativeLoginAccountStats(html, hour) {
   const $ = cheerio.load(html);
   const rows = expandedTableRows($, reportTable($, 'UF_MKT系データ(ログインアカウント別/時間毎)'));
-  const accountHeader = rows.find((row) => row.some((value) => text(value) === '全体'));
-  const metricHeader = rows.find((row) => text(row[0]) === 'やり取り送信');
-  if (!accountHeader || !metricHeader) {
-    throw new Error('ログインアカウント別/時間毎の全体受信データが見つかりません。');
-  }
-
-  const accountIndex = accountHeader.findIndex((value) => text(value) === '全体');
-  const receiveTypes = ['やり取り受信', '個別受信', '同報受信'];
-  const indices = receiveTypes.map((label) => {
-    const metricIndex = metricHeader.findIndex((value) => text(value) === text(label));
-    if (metricIndex < 0) throw new Error(`ログインアカウント別/時間毎の「${label}」が見つかりません。`);
-    return accountIndex + metricIndex;
-  });
-
-  return rows
-    .filter((row) => /^\d+時$/.test(text(row[0])) && Number(text(row[0]).replace('時', '')) < hour)
-    .reduce((total, row) => total + indices.reduce((sum, index) => sum + metricNumber(row[index], 'UF受信'), 0), 0);
+  return cumulativeLoginAccountMetrics(rows, hour);
 }
 
 function reportMetrics(html, date, hour) {
@@ -540,10 +525,13 @@ function reportMetrics(html, date, hour) {
     reportRows($, reportTable($, 'UF_MKT系データ(フォルダ別DAU/日毎)')),
     date.display,
   );
+  const accountHourlyStats = cumulativeLoginAccountStats(html, hour);
   return {
     receivemails: summaryReportMetric($, '全体受信データ', ['メール総数']),
     ...boxDau,
-    mktReceivemails: cumulativeUfReceive(html, hour),
+    mktReceivemails: accountHourlyStats.ufReceive,
+    individualSend: accountHourlyStats.individualSend,
+    individualReceive: accountHourlyStats.individualReceive,
     boxAReceivemails: cumulativeHourlyMetric(hourlyRows, 'A受信', hour),
     boxBReceivemails: cumulativeHourlyMetric(hourlyRows, 'B受信', hour),
     boxCReceivemails: cumulativeHourlyMetric(hourlyRows, 'C受信', hour),
@@ -672,6 +660,35 @@ function locateSendTable(values, date, sheetName) {
   };
 }
 
+function locateIndividualTargetRow(values, date, hour, sheetName) {
+  const titleIndex = values.findIndex(([columnA, columnB]) => text(columnA).startsWith(date.label) && text(columnB) === 'DC');
+  if (titleIndex < 0) throw new Error(`${date.label} DC block was not found in ${sheetName}.`);
+
+  // AB:AE is the 個別 table: 目標 / 送信 / 目標 / 受信. Only write AC and AE.
+  const headerIndex = values.findIndex((columns, index) => index > titleIndex
+    && index < titleIndex + 35
+    && text(values[index - 1]?.[27]) === '個別'
+    && text(columns[27]) === '目標'
+    && text(columns[28]) === '送信'
+    && text(columns[29]) === '目標'
+    && text(columns[30]) === '受信');
+  if (headerIndex < 0) throw new Error(`The AB:AE 個別 table was not found below the ${date.label} DC block.`);
+
+  let rowIndex = values.findIndex((columns, index) => index > headerIndex
+    && index < headerIndex + 10
+    && text(columns[0]) === String(hour));
+  let replaceTimeLabel = false;
+  if (rowIndex < 0 && LEGACY_TIME_BY_REPORT_HOUR.has(hour)) {
+    const legacyHour = LEGACY_TIME_BY_REPORT_HOUR.get(hour);
+    rowIndex = values.findIndex((columns, index) => index > headerIndex
+      && index < headerIndex + 10
+      && text(columns[0]) === String(legacyHour));
+    replaceTimeLabel = rowIndex >= 0;
+  }
+  if (rowIndex < 0) throw new Error(`${hour} o'clock row was not found in the 個別 table of ${sheetName}.`);
+  return { row: rowIndex + 1, replaceTimeLabel };
+}
+
 function normalizeSheetName(value) {
   return String(value ?? '').replace(/[\s_]/g, '');
 }
@@ -743,8 +760,10 @@ async function updateSheet(metrics, hour, date, canRunForSlot) {
     const values = source.data.values ?? [];
     const target = locateTargetRow(values, date, hour, sheetName);
     const boxTarget = locateBoxTargetRow(values, date, hour, sheetName);
+    const individualTarget = locateIndividualTargetRow(values, date, hour, sheetName);
     const row = target.row;
     const boxRow = boxTarget.row;
+    const individualRow = individualTarget.row;
     const boxColumns = boxTarget.columns;
     const sendTable = locateSendTable(values, date, sheetName);
     const sendRow = row;
@@ -767,10 +786,13 @@ async function updateSheet(metrics, hour, date, canRunForSlot) {
         data: [
           ...(target.replaceTimeLabel ? [{ range: `'${sheetName}'!A${row}`, values: [[hour]] }] : []),
           ...(boxTarget.replaceTimeLabel ? [{ range: `'${sheetName}'!A${boxRow}`, values: [[hour]] }] : []),
+          ...(individualTarget.replaceTimeLabel ? [{ range: `'${sheetName}'!A${individualRow}`, values: [[hour]] }] : []),
           { range: `'${sheetName}'!${columnLetter(target.metricColumns.grossReceiveIndex)}${row}`, values: [[metrics.receivemails]] },
           { range: `'${sheetName}'!${columnLetter(target.metricColumns.ufReceiveIndex)}${row}`, values: [[metrics.mktReceivemails]] },
           { range: `'${sheetName}'!${columnLetter(target.metricColumns.grossDauIndex)}${row}`, values: [[metrics.grossDau]] },
           { range: `'${sheetName}'!AI${row}`, values: [[metrics.grossSales]] },
+          { range: `'${sheetName}'!AC${individualRow}`, values: [[metrics.individualSend]] },
+          { range: `'${sheetName}'!AE${individualRow}`, values: [[metrics.individualReceive]] },
           ...[
             ['A', metrics.boxAReceivemails], ['B', metrics.boxBReceivemails],
             ['C', metrics.boxCReceivemails], ['E', metrics.boxEReceivemails],
@@ -793,7 +815,7 @@ async function updateSheet(metrics, hour, date, canRunForSlot) {
         ],
       },
     });
-    results.push({ sheetName, row, boxRow, sendRow, todayResultCount: todayResultTargets.length });
+    results.push({ sheetName, row, boxRow, individualRow, sendRow, todayResultCount: todayResultTargets.length });
   }
   return results;
 }
@@ -881,8 +903,8 @@ async function main() {
   if (!canRunForSlot('after fetch')) return;
   const updatedSheets = await updateSheet(metrics, hour, date, canRunForSlot);
   if (!updatedSheets) return;
-  const destination = updatedSheets.map(({ sheetName, row, boxRow, sendRow, todayResultCount }) => `${sheetName}: row ${row}, box row ${boxRow}, send row ${sendRow}, today results ${todayResultCount}`).join('; ');
-  console.log(`${date.label} ${hour}:00 -> ${destination}; all_receive=${metrics.receivemails}, uf_receive=${metrics.mktReceivemails}, gross_dau=${metrics.grossDau}, gross_sales=${metrics.grossSales}, send_a=${metrics.boxASend}, send_b=${metrics.boxBSend}, send_c=${metrics.boxCSend}, send_e=${metrics.boxESend}, send_i=${metrics.boxISend}, send_j=${metrics.boxJSend}, send_m=${metrics.boxMSend}, send_q=${metrics.boxQSend}, send_total=${metrics.sendTotal}; source=${date.display}`);
+  const destination = updatedSheets.map(({ sheetName, row, boxRow, individualRow, sendRow, todayResultCount }) => `${sheetName}: row ${row}, box row ${boxRow}, individual row ${individualRow}, send row ${sendRow}, today results ${todayResultCount}`).join('; ');
+  console.log(`${date.label} ${hour}:00 -> ${destination}; all_receive=${metrics.receivemails}, uf_receive=${metrics.mktReceivemails}, individual_send=${metrics.individualSend}, individual_receive=${metrics.individualReceive}, gross_dau=${metrics.grossDau}, gross_sales=${metrics.grossSales}, send_a=${metrics.boxASend}, send_b=${metrics.boxBSend}, send_c=${metrics.boxCSend}, send_e=${metrics.boxESend}, send_i=${metrics.boxISend}, send_j=${metrics.boxJSend}, send_m=${metrics.boxMSend}, send_q=${metrics.boxQSend}, send_total=${metrics.sendTotal}; source=${date.display}`);
 }
 
 main().catch((error) => {
