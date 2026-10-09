@@ -7,6 +7,7 @@ import { inferReportHourFromTrigger, isReportSlotStale, parseExplicitReportDate,
 import { parseGrossSales, parsePaidMaleAllUsagePt } from './gross-sales-report.js';
 import { boxColumnsFromTableHeaders, parseDailyBoxDau, sendColumnsFromHeader, summaryMetricColumnsFromHeader } from './box-dau-layout.js';
 import { cumulativeLoginAccountMetrics } from './login-account-hourly.js';
+import { buildWeeklySummaryWrites } from './weekly-summary.js';
 
 const LOGIN_URL = 'https://log.digicafe.jp/partner/';
 const REPORT_URL = 'https://log.digicafe.jp/partner/mailnum_uf';
@@ -14,6 +15,7 @@ const GROSS_SALES_URL = 'https://log.digicafe.jp/partner/status/pt';
 const PHPLITEADMIN_URL = 'https://smlovely.chatlove.xyz/dc/admin/phpliteadmin.php?database=..%2Fdb.db&table=mailnum2&fulltexts=0&numRows=30&action=row_view';
 const PHPLITEADMIN_SQL_URL = 'https://smlovely.chatlove.xyz/dc/admin/phpliteadmin.php?database=..%2Fdb.db&table=mailnum2&fulltexts=0&numRows=30&action=table_sql';
 const SHEET_NAMES = ['目標＆振分'];
+const WEEKLY_SOURCE_SPREADSHEET_ID = '1ZRmMQTiTcYR8aWsbF_ZnPccnILKhjEXW9zgqPgHgzik';
 const REPORT_HOURS = [9, 10, 13, 17, 21, 24, 27];
 const ID_MAP_SHEET_CANDIDATES = ['マケ画面アカウント対応表', 'DCアカウント対応表', '名前_id対応表'];
 // 古い時刻表を複製して作られた日付ブロックでも、初回更新時に新しい時刻へ置換する。
@@ -755,6 +757,18 @@ async function updateSheet(metrics, hour, date, canRunForSlot) {
   const nameToId = await loadNameToId(sheets, spreadsheetId);
   const executionTime = currentTimeJst();
   const results = [];
+  let weeklySourceRows = null;
+  if (hour === 9) {
+    try {
+      const weeklySource = await sheets.spreadsheets.values.get({
+        spreadsheetId: WEEKLY_SOURCE_SPREADSHEET_ID,
+        range: "'総合'!A:K",
+      });
+      weeklySourceRows = weeklySource.data.values ?? [];
+    } catch (error) {
+      console.warn(`週目標・週結果は取得元を読めず今回はスキップします: ${error.message}`);
+    }
+  }
   for (const sheetName of SHEET_NAMES) {
     const range = `'${sheetName}'!A:AZ`;
     const source = await sheets.spreadsheets.values.get({ spreadsheetId, range });
@@ -778,6 +792,21 @@ async function updateSheet(metrics, hour, date, canRunForSlot) {
         values: [[stats.interaction, stats.individual, stats.broadcast]],
       };
     });
+    let weeklyWrites = [];
+    if (hour === 9 && weeklySourceRows) {
+      const weekly = buildWeeklySummaryWrites({
+        sourceRows: weeklySourceRows,
+        targetValues: values,
+        reportDate: date.iso,
+        sheetName,
+      });
+      if (weekly.skipped) {
+        console.warn(`週目標・週結果はスキップします: ${weekly.skipped}`);
+      } else {
+        weeklyWrites = weekly.writes;
+        console.log(`${date.label} weekly summary -> ${JSON.stringify(weekly.summary)}`);
+      }
+    }
 
     if (!canRunForSlot('before write')) return null;
     await sheets.spreadsheets.values.batchUpdate({
@@ -814,6 +843,7 @@ async function updateSheet(metrics, hour, date, canRunForSlot) {
           })),
           { range: `'${sheetName}'!AW${todayResultTimeRow}`, values: [[executionTime]] },
           ...todayResultWrites,
+          ...weeklyWrites,
         ],
       },
     });
