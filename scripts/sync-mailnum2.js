@@ -590,7 +590,7 @@ async function fetchReportMetrics(date, hour) {
     console.warn(`${date.label} 男性登録・年確数は今回は取得できませんでした: ${error.message}`);
   }
   return {
-    ...(hour === 13 ? await (async () => { const m = reportMetrics(response.data, date, hour); const start = new Date(Date.UTC(date.year, date.month - 2, 1)).toISOString().slice(0, 10); const q = new URLSearchParams({ sex: '0', sort: 'times', mail_start: date.iso, mail_end: date.iso, code: '', frm: '', created_at_start: start, created_at_end: date.iso, is_create: '1', disp_type: '', folder_rcv_source: 'point', sum: '集計' }); const r = await client.get(`${REPORT_URL}?${q}`, { headers: REQUEST_HEADERS }); if (r.status !== 200) throw new Error(`全体送信データ HTTP ${r.status}`); const p = cheerio.load(r.data); m.receivemails = summaryReportMetric(p, '全体送信データ', ['メール総数']); m.grossDau = summaryReportMetric(p, '全体送信データ', ['メール人数']); return m; })() : reportMetrics(response.data, date, hour)),
+    ...(await (async () => { const m = reportMetrics(response.data, date, hour); const start = new Date(Date.UTC(date.year, date.month - 2, 1)).toISOString().slice(0, 10); const q = new URLSearchParams({ sex: '0', sort: 'times', mail_start: date.iso, mail_end: date.iso, code: '', frm: '', created_at_start: start, created_at_end: date.iso, is_create: '1', disp_type: '', folder_rcv_source: 'point', sum: '集計' }); const r = await client.get(`${REPORT_URL}?${q}`, { headers: REQUEST_HEADERS }); if (r.status !== 200) throw new Error(`全体送信データ HTTP ${r.status}`); const p = cheerio.load(r.data); m.newMaleReceive = summaryReportMetric(p, '全体送信データ', ['メール総数']); m.newMaleDau = summaryReportMetric(p, '全体送信データ', ['メール人数']); return m; })()),
     grossSales: parseGrossSales(salesResponse.data, date),
     paidMaleAllUsagePt: parsePaidMaleAllUsagePt(salesResponse.data, date),
     registrationMetrics,
@@ -846,7 +846,7 @@ async function updateSheet(metrics, hour, date, canRunForSlot) {
           { range: `'${sheetName}'!${columnLetter(target.metricColumns.grossReceiveIndex)}${row}`, values: [[metrics.receivemails]] },
           { range: `'${sheetName}'!${columnLetter(target.metricColumns.ufReceiveIndex)}${row}`, values: [[metrics.mktReceivemails]] },
           { range: `'${sheetName}'!${columnLetter(target.metricColumns.grossDauIndex)}${row}`, values: [[metrics.grossDau]] },
-          ...(metrics.registrationMetrics && registrationHeadersAreCorrect
+          { range: `'${sheetName}'!Z${row}:AA${row}`, values: [[metrics.newMaleReceive, metrics.newMaleDau]] }, ...(metrics.registrationMetrics && registrationHeadersAreCorrect
             ? [{ range: `'${sheetName}'!W${row}:X${row}`, values: [[metrics.registrationMetrics.registrations, metrics.registrationMetrics.ageVerifications]] }]
             : []),
           { range: `'${sheetName}'!AI${row}`, values: [[metrics.grossSales]] },
