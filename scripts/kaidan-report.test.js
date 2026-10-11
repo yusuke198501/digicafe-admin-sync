@@ -27,7 +27,7 @@ test('reads vertically stacked metrics in date-column summary tables', () => {
     <tr>
       <td>合計</td>
       <td><div>アクセス(unique)</div><div>男性登録数</div><div>女性登録数</div><div>男性年認完了数</div><div>女性年認完了数</div></td>
-      <td><div>1,000</div><div>114</div><div>72</div><div>80</div><div>67</div></td>
+      
       <td><div>1,000</div><div>114</div><div>72</div><div>80</div><div>67</div></td>
       <td><div>0</div><div>40</div><div>6</div><div>21</div><div>2</div></td>
     </tr>
