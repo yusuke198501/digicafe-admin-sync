@@ -51,6 +51,21 @@ function labelValue(rows, kind) {
   return null;
 }
 
+function safeSchemaPreview($, tables, date) {
+  const headings = $('h1,h2,h3,h4,h5,h6').toArray()
+    .map((heading) => $(heading).text().replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+  const tableHeaders = $('table').toArray().map((table) => $(table).find('th').toArray()
+    .map((cell) => $(cell).text().replace(/\s+/g, ' ').trim())
+    .filter(Boolean).slice(0, 16)).filter((row) => row.length);
+  const dateRowNumbers = tables.flatMap((rows) => rows
+    .filter((row) => row.some((cell) => dateRowMatches(cell, date)))
+    .map((row) => row.filter((cell) => dateRowMatches(cell, date)
+      || /^-?[\d,]+(?:\.\d+)?$/.test(String(cell ?? '').trim())
+      || ['-', '－'].includes(String(cell ?? '').trim())))).filter((row) => row.length);
+  return `headings=${JSON.stringify(headings)}; table_headers=${JSON.stringify(tableHeaders)}; target_date_rows=${JSON.stringify(dateRowNumbers)}`;
+}
+
 /**
  * Parses the male daily-registration report for the selected report date.
  * It supports a date-column table or a single-day summary returned by the
@@ -105,7 +120,7 @@ export function parseKaidanMetrics(html, date) {
   }
 
   if (registration === null || ageVerification === null) {
-    throw new Error(`${date.display} の男性登録数・男性年認完了数を管理画面から特定できません。`);
+    throw new Error(`${date.display} の男性登録数・男性年認完了数を管理画面から特定できません。${safeSchemaPreview($, tables, date)}`);
   }
   return { registrations: registration, ageVerifications: ageVerification };
 }
