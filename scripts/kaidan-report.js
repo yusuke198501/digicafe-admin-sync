@@ -89,11 +89,11 @@ function parseStackedSummaryTable($, date) {
 
     for (const row of rows) {
       const cells = $(row).children('th,td').toArray();
-      if (normalized($(cells[0]).text()) !== '合計' || cells.length <= targetDateColumn + 1) continue;
+      if (normalized($(cells[0]).text()) !== '合計' || cells.length <= targetDateColumn) continue;
 
       const metricCell = $(cells[1]);
       const labels = metricCell.children().toArray().map((child) => normalized($(child).text()));
-      const valueCell = $(cells[targetDateColumn + 1]);
+      const valueCell = $(cells[targetDateColumn]);
       const values = valueCell.children().toArray().map((child) => normalized($(child).text()));
       const registrationIndex = metricHeaderIndex(labels, 'registration');
       const ageIndex = metricHeaderIndex(labels, 'age');
