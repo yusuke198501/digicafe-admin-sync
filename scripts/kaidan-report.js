@@ -74,6 +74,47 @@ function safeSchemaPreview($, tables, date) {
   return `title=${JSON.stringify($('title').text().trim())}; headings=${JSON.stringify(headings)}; table_headers=${JSON.stringify(tableHeaders)}; target_date_rows=${JSON.stringify(dateRowNumbers)}; body_flags=${JSON.stringify(bodyFlags)}`;
 }
 
+function parseStackedSummaryTable($, date) {
+  const candidates = [];
+
+  for (const table of $('table').toArray()) {
+    const rows = $(table).find('tr').toArray();
+    const header = rows.map((row) => $(row).children('th,td').toArray()
+      .map((cell) => normalized($(cell).text())))
+      .find((cells) => cells.includes('項目') && cells.some((cell) => dateRowMatches(cell, date)));
+    if (!header) continue;
+
+    const targetDateColumn = header.findIndex((cell) => dateRowMatches(cell, date));
+    if (targetDateColumn < 0) continue;
+
+    for (const row of rows) {
+      const cells = $(row).children('th,td').toArray();
+      if (normalized($(cells[0]).text()) !== '合計' || cells.length <= targetDateColumn + 1) continue;
+
+      const metricCell = $(cells[1]);
+      const labels = metricCell.children().toArray().map((child) => normalized($(child).text()));
+      const valueCell = $(cells[targetDateColumn + 1]);
+      const values = valueCell.children().toArray().map((child) => normalized($(child).text()));
+      const registrationIndex = metricHeaderIndex(labels, 'registration');
+      const ageIndex = metricHeaderIndex(labels, 'age');
+      if (registrationIndex < 0 || ageIndex < 0) continue;
+      if (values[registrationIndex] === undefined || values[ageIndex] === undefined) continue;
+
+      candidates.push({
+        registrations: numericCell(values[registrationIndex], '男性登録数'),
+        ageVerifications: numericCell(values[ageIndex], '男性年認完了数'),
+      });
+    }
+  }
+
+  if (candidates.length > 1 && candidates.some((candidate) =>
+    candidate.registrations !== candidates[0].registrations
+      || candidate.ageVerifications !== candidates[0].ageVerifications)) {
+    throw new Error('男性登録数・年認完了数の候補が複数見つかり、値が一致しません。');
+  }
+  return candidates[0] ?? null;
+}
+
 /**
  * Parses the male daily-registration report for the selected report date.
  * It supports a date-column table or a single-day summary returned by the
@@ -81,6 +122,8 @@ function safeSchemaPreview($, tables, date) {
  */
 export function parseKaidanMetrics(html, date) {
   const $ = cheerio.load(html);
+  const stackedSummary = parseStackedSummaryTable($, date);
+  if (stackedSummary) return stackedSummary;
   const tables = $('table').toArray().map((table) => expandedRows($, table));
   let registration = null;
   let ageVerification = null;

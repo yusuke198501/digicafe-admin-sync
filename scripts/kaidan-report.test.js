@@ -21,6 +21,20 @@ test('reads the single-day summary after the page has been filtered to the targe
   assert.deepEqual(parseKaidanMetrics(html, date), { registrations: 31, ageVerifications: 22 });
 });
 
+test('reads vertically stacked metrics in date-column summary tables', () => {
+  const html = `<table class="table table-bordered table-striped">
+    <tr><td>項目</td><td>合計</td><td>2026-10-10</td><td>2026-10-11</td></tr>
+    <tr>
+      <td>合計</td>
+      <td><div>アクセス(unique)</div><div>男性登録数</div><div>女性登録数</div><div>男性年認完了数</div><div>女性年認完了数</div></td>
+      <td><div>1,000</div><div>114</div><div>72</div><div>80</div><div>67</div></td>
+      <td><div>1,000</div><div>114</div><div>72</div><div>80</div><div>67</div></td>
+      <td><div>0</div><div>40</div><div>6</div><div>21</div><div>2</div></td>
+    </tr>
+  </table>`;
+  assert.deepEqual(parseKaidanMetrics(html, date), { registrations: 40, ageVerifications: 21 });
+});
+
 test('supports metric label/value rows and treats a dash as zero', () => {
   const html = `<table>
     <tr><th>男性登録数</th><td>7</td></tr>
