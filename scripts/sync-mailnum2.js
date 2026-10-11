@@ -8,9 +8,11 @@ import { parseGrossSales, parsePaidMaleAllUsagePt } from './gross-sales-report.j
 import { boxColumnsFromTableHeaders, parseDailyBoxDau, sendColumnsFromHeader, summaryMetricColumnsFromHeader } from './box-dau-layout.js';
 import { cumulativeLoginAccountMetrics } from './login-account-hourly.js';
 import { buildWeeklySummaryWrites } from './weekly-summary.js';
+import { parseKaidanMetrics } from './kaidan-report.js';
 
 const LOGIN_URL = 'https://log.digicafe.jp/partner/';
 const REPORT_URL = 'https://log.digicafe.jp/partner/mailnum_uf';
+const KAIDAN_URL = 'https://log.digicafe.jp/partner/kaidan';
 const GROSS_SALES_URL = 'https://log.digicafe.jp/partner/status/pt';
 const PHPLITEADMIN_URL = 'https://smlovely.chatlove.xyz/dc/admin/phpliteadmin.php?database=..%2Fdb.db&table=mailnum2&fulltexts=0&numRows=30&action=row_view';
 const PHPLITEADMIN_SQL_URL = 'https://smlovely.chatlove.xyz/dc/admin/phpliteadmin.php?database=..%2Fdb.db&table=mailnum2&fulltexts=0&numRows=30&action=table_sql';
@@ -574,10 +576,24 @@ async function fetchReportMetrics(date, hour) {
   if (salesResponse.status !== 200) {
     throw new Error(`グロス売上の取得に失敗しました（HTTP ${salesResponse.status}）。`);
   }
+  let registrationMetrics = null;
+  try {
+    const kaidanQuery = new URLSearchParams({
+      category: '1', sex: '0',
+      registed_at_start: date.iso, registed_at_end: date.iso,
+      search: '', keywords: '', term: 'd', sum: '集計',
+    });
+    const kaidanResponse = await client.get(`${KAIDAN_URL}?${kaidanQuery}`, { headers: REQUEST_HEADERS });
+    if (kaidanResponse.status !== 200) throw new Error(`HTTP ${kaidanResponse.status}`);
+    registrationMetrics = parseKaidanMetrics(kaidanResponse.data, date);
+  } catch (error) {
+    console.warn(`${date.label} 男性登録・年確数は今回は取得できませんでした: ${error.message}`);
+  }
   return {
     ...reportMetrics(response.data, date, hour),
     grossSales: parseGrossSales(salesResponse.data, date),
     paidMaleAllUsagePt: parsePaidMaleAllUsagePt(salesResponse.data, date),
+    registrationMetrics,
   };
 }
 
@@ -617,7 +633,12 @@ function locateTargetRow(values, date, hour, sheetName) {
   }
   if (rowIndex < 0) throw new Error(`${hour} o'clock row was not found in the ${date.label} DC block.`);
   const metricColumns = summaryMetricColumnsFromHeader(values[timeHeaderIndex - 1] ?? []);
-  return { row: rowIndex + 1, replaceTimeLabel, metricColumns };
+  const registrationHeader = values[timeHeaderIndex] ?? [];
+  const registrationColumns = {
+    registrations: registrationHeader.findIndex((column) => text(column) === '登録'),
+    ageVerifications: registrationHeader.findIndex((column) => text(column) === '年確'),
+  };
+  return { row: rowIndex + 1, replaceTimeLabel, metricColumns, registrationColumns };
 }
 
 function locateBoxTargetRow(values, date, hour, sheetName) {
@@ -807,6 +828,11 @@ async function updateSheet(metrics, hour, date, canRunForSlot) {
         console.log(`${date.label} weekly summary -> ${JSON.stringify(weekly.summary)}`);
       }
     }
+    const registrationHeadersAreCorrect = target.registrationColumns.registrations === 22
+      && target.registrationColumns.ageVerifications === 23;
+    if (metrics.registrationMetrics && !registrationHeadersAreCorrect) {
+      console.warn(`${date.label} の時間別表でW「登録」・X「年確」の見出しが確認できず、登録・年確数は書き込みません。`);
+    }
 
     if (!canRunForSlot('before write')) return null;
     await sheets.spreadsheets.values.batchUpdate({
@@ -820,6 +846,9 @@ async function updateSheet(metrics, hour, date, canRunForSlot) {
           { range: `'${sheetName}'!${columnLetter(target.metricColumns.grossReceiveIndex)}${row}`, values: [[metrics.receivemails]] },
           { range: `'${sheetName}'!${columnLetter(target.metricColumns.ufReceiveIndex)}${row}`, values: [[metrics.mktReceivemails]] },
           { range: `'${sheetName}'!${columnLetter(target.metricColumns.grossDauIndex)}${row}`, values: [[metrics.grossDau]] },
+          ...(metrics.registrationMetrics && registrationHeadersAreCorrect
+            ? [{ range: `'${sheetName}'!W${row}:X${row}`, values: [[metrics.registrationMetrics.registrations, metrics.registrationMetrics.ageVerifications]] }]
+            : []),
           { range: `'${sheetName}'!AI${row}`, values: [[metrics.grossSales]] },
           { range: `'${sheetName}'!AC${individualRow}`, values: [[metrics.individualSend]] },
           { range: `'${sheetName}'!AE${individualRow}`, values: [[metrics.individualReceive]] },
@@ -936,7 +965,7 @@ async function main() {
   const updatedSheets = await updateSheet(metrics, hour, date, canRunForSlot);
   if (!updatedSheets) return;
   const destination = updatedSheets.map(({ sheetName, row, boxRow, individualRow, sendRow, todayResultCount }) => `${sheetName}: row ${row}, box row ${boxRow}, individual row ${individualRow}, send row ${sendRow}, today results ${todayResultCount}`).join('; ');
-  console.log(`${date.label} ${hour}:00 -> ${destination}; all_receive=${metrics.receivemails}, uf_receive=${metrics.mktReceivemails}, individual_send=${metrics.individualSend}, individual_receive=${metrics.individualReceive}, gross_dau=${metrics.grossDau}, gross_sales=${metrics.grossSales}, paid_male_all_usage_pt=${metrics.paidMaleAllUsagePt}, send_a=${metrics.boxASend}, send_b=${metrics.boxBSend}, send_c=${metrics.boxCSend}, send_e=${metrics.boxESend}, send_i=${metrics.boxISend}, send_j=${metrics.boxJSend}, send_m=${metrics.boxMSend}, send_q=${metrics.boxQSend}, send_total=${metrics.sendTotal}; source=${date.display}`);
+  console.log(`${date.label} ${hour}:00 -> ${destination}; all_receive=${metrics.receivemails}, uf_receive=${metrics.mktReceivemails}, individual_send=${metrics.individualSend}, individual_receive=${metrics.individualReceive}, gross_dau=${metrics.grossDau}, gross_sales=${metrics.grossSales}, paid_male_all_usage_pt=${metrics.paidMaleAllUsagePt}, male_registrations=${metrics.registrationMetrics?.registrations ?? 'unavailable'}, male_age_verifications=${metrics.registrationMetrics?.ageVerifications ?? 'unavailable'}, send_a=${metrics.boxASend}, send_b=${metrics.boxBSend}, send_c=${metrics.boxCSend}, send_e=${metrics.boxESend}, send_i=${metrics.boxISend}, send_j=${metrics.boxJSend}, send_m=${metrics.boxMSend}, send_q=${metrics.boxQSend}, send_total=${metrics.sendTotal}; source=${date.display}`);
 }
 
 main().catch((error) => {
