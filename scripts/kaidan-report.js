@@ -63,7 +63,15 @@ function safeSchemaPreview($, tables, date) {
     .map((row) => row.filter((cell) => dateRowMatches(cell, date)
       || /^-?[\d,]+(?:\.\d+)?$/.test(String(cell ?? '').trim())
       || ['-', '－'].includes(String(cell ?? '').trim())))).filter((row) => row.length);
-  return `headings=${JSON.stringify(headings)}; table_headers=${JSON.stringify(tableHeaders)}; target_date_rows=${JSON.stringify(dateRowNumbers)}`;
+  const bodyText = $('body').text().replace(/\s+/g, ' ').trim();
+  const bodyFlags = {
+    length: bodyText.length,
+    hasRegistrationTerm: bodyText.includes('登録'),
+    hasAgeVerificationTerm: /年認|年確|年齢/.test(bodyText),
+    hasNoResultsTerm: /該当なし|該当データ|データがありません|検索結果はありません|0件/.test(bodyText),
+    hasLoginForm: $('input[type="password"]').length > 0,
+  };
+  return `title=${JSON.stringify($('title').text().trim())}; headings=${JSON.stringify(headings)}; table_headers=${JSON.stringify(tableHeaders)}; target_date_rows=${JSON.stringify(dateRowNumbers)}; body_flags=${JSON.stringify(bodyFlags)}`;
 }
 
 /**
