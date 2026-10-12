@@ -68,9 +68,9 @@ test('converts legacy week headers to rolling seven-day labels', () => {
     ['７日前', '６日前', '５日前', '４日前', '３日前', '２日前', '昨日']);
 });
 
-test('adds the time-target formula only when its cell is blank', () => {
+test('adds the numeric time target only when its cell is blank', () => {
   const result = buildWeeklySummaryWrites({ sourceRows, targetValues: makeSheet(false, false), reportDate: '2026-10-12', sheetName: '目標＆振分' });
-  assert.equal(writeValue(result, 'Q32'), '=Q31/25');
+  assert.equal(writeValue(result, 'Q32'), 581.2);
 });
 
 test('does not partially write when one of the seven source days is missing', () => {
@@ -87,7 +87,7 @@ test('initializes a blank seven-day summary in the next DC block', () => {
   assert.equal(writeValue(result, 'P36'), '時間数');
   assert.equal(writeValue(result, 'Q33'), '７日間目標');
   assert.equal(writeValue(result, 'T33'), '７日間結果');
-  assert.equal(writeValue(result, 'Q36'), '=Q35/25');
+  assert.equal(writeValue(result, 'Q36'), result.summary.kpiGoal / 25);
   assert.equal(result.summary.days, 7);
 });
 
