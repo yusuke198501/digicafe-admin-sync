@@ -633,10 +633,21 @@ function locateTargetRow(values, date, hour, sheetName) {
   }
   if (rowIndex < 0) throw new Error(`${hour} o'clock row was not found in the ${date.label} DC block.`);
   const metricColumns = summaryMetricColumnsFromHeader(values[timeHeaderIndex - 1] ?? []);
-  const registrationHeader = values[timeHeaderIndex] ?? [];
+  const metricHeader = values[timeHeaderIndex - 1] ?? [];
+  const resultHeader = values[timeHeaderIndex] ?? [];
+  const resultColumn = (label) => {
+    const targetIndex = metricHeader.findIndex((column) => text(column) === label);
+    if (targetIndex < 0) return -1;
+    return text(resultHeader[targetIndex]) === '目標'
+      && text(resultHeader[targetIndex + 1]) === '結果'
+      ? targetIndex + 1
+      : -1;
+  };
   const registrationColumns = {
-    registrations: registrationHeader.findIndex((column) => text(column) === '登録'),
-    ageVerifications: registrationHeader.findIndex((column) => text(column) === '年確'),
+    registrations: resultColumn('登録'),
+    ageVerifications: resultColumn('年確'),
+    newMaleReceive: resultColumn('受信'),
+    newMaleDau: resultColumn('DAU'),
   };
   return { row: rowIndex + 1, replaceTimeLabel, metricColumns, registrationColumns };
 }
@@ -828,10 +839,15 @@ async function updateSheet(metrics, hour, date, canRunForSlot) {
         console.log(`${date.label} weekly summary -> ${JSON.stringify(weekly.summary)}`);
       }
     }
-    const registrationHeadersAreCorrect = target.registrationColumns.registrations === 22
-      && target.registrationColumns.ageVerifications === 23;
+    const registrationHeadersAreCorrect = target.registrationColumns.registrations >= 0
+      && target.registrationColumns.ageVerifications >= 0;
+    const newMaleHeadersAreCorrect = target.registrationColumns.newMaleReceive >= 0
+      && target.registrationColumns.newMaleDau >= 0;
     if (metrics.registrationMetrics && !registrationHeadersAreCorrect) {
-      console.warn(`${date.label} の時間別表でW「登録」・X「年確」の見出しが確認できず、登録・年確数は書き込みません。`);
+      console.warn(`${date.label} の時間別表で登録・年確の目標/結果見出しが確認できず、登録・年確数は書き込みません。`);
+    }
+    if (!newMaleHeadersAreCorrect) {
+      console.warn(`${date.label} の時間別表で受信・DAUの目標/結果見出しが確認できず、受信・DAU数は書き込みません。`);
     }
 
     if (!canRunForSlot('before write')) return null;
@@ -846,9 +862,14 @@ async function updateSheet(metrics, hour, date, canRunForSlot) {
           { range: `'${sheetName}'!${columnLetter(target.metricColumns.grossReceiveIndex)}${row}`, values: [[metrics.receivemails]] },
           { range: `'${sheetName}'!${columnLetter(target.metricColumns.ufReceiveIndex)}${row}`, values: [[metrics.mktReceivemails]] },
           { range: `'${sheetName}'!${columnLetter(target.metricColumns.grossDauIndex)}${row}`, values: [[metrics.grossDau]] },
-          { range: `'${sheetName}'!Z${row}:AA${row}`, values: [[metrics.newMaleReceive, metrics.newMaleDau]] }, ...(metrics.registrationMetrics && registrationHeadersAreCorrect
-            ? [{ range: `'${sheetName}'!W${row}:X${row}`, values: [[metrics.registrationMetrics.registrations, metrics.registrationMetrics.ageVerifications]] }]
-            : []),
+          ...(newMaleHeadersAreCorrect ? [
+            { range: `'${sheetName}'!${columnLetter(target.registrationColumns.newMaleReceive)}${row}`, values: [[metrics.newMaleReceive]] },
+            { range: `'${sheetName}'!${columnLetter(target.registrationColumns.newMaleDau)}${row}`, values: [[metrics.newMaleDau]] },
+          ] : []),
+          ...(metrics.registrationMetrics && registrationHeadersAreCorrect ? [
+            { range: `'${sheetName}'!${columnLetter(target.registrationColumns.registrations)}${row}`, values: [[metrics.registrationMetrics.registrations]] },
+            { range: `'${sheetName}'!${columnLetter(target.registrationColumns.ageVerifications)}${row}`, values: [[metrics.registrationMetrics.ageVerifications]] },
+          ] : []),
           { range: `'${sheetName}'!AI${row}`, values: [[metrics.grossSales]] },
           { range: `'${sheetName}'!AC${individualRow}`, values: [[metrics.individualSend]] },
           { range: `'${sheetName}'!AE${individualRow}`, values: [[metrics.individualReceive]] },
