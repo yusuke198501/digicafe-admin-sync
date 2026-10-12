@@ -65,14 +65,24 @@ export function buildWeeklySummaryWrites({ sourceRows, targetValues, reportDate,
   const reportParts = reportDate.split('-').map(Number);
   const titleIndex = locateDateTitle(targetValues, new Date(Date.UTC(reportParts[0], reportParts[1] - 1, reportParts[2])));
   if (titleIndex < 0) return { writes: [], skipped: `DC block for ${reportDate} was not found.` };
-  const headerIndex = targetValues.findIndex((row, index) => index >= titleIndex
+  let headerIndex = targetValues.findIndex((row, index) => index >= titleIndex
     && index < titleIndex + 6
     && ['週目標', '７日間目標'].includes(cellText(row?.[16]))
     && ['週結果', '７日間結果'].includes(cellText(row?.[19])));
-  if (headerIndex < 0) return { writes: [], skipped: `Seven-day summary headers were not found in ${sheetName}.` };
+  let initializeLabels = false;
+  if (headerIndex < 0) {
+    // New DC blocks may have no seven-day summary yet. Only initialize one if
+    // every cell we would use is empty; never overwrite unrelated content.
+    const candidate = titleIndex;
+    const occupied = targetValues.slice(candidate, candidate + 4).some((row) =>
+      [15, 16, 19, 22, 23, 24, 25, 26, 27, 28].some((column) => cellText(row?.[column])));
+    if (occupied) return { writes: [], skipped: `Seven-day summary area is occupied in ${sheetName}.` };
+    headerIndex = candidate;
+    initializeLabels = true;
+  }
 
   const rowLabels = [headerIndex + 1, headerIndex + 2, headerIndex + 3].map((index) => cellText(targetValues[index]?.[15]));
-  if (rowLabels[0] !== '売上' || rowLabels[1] !== 'KPI' || rowLabels[2] !== '時間数') {
+  if (!initializeLabels && (rowLabels[0] !== '売上' || rowLabels[1] !== 'KPI' || rowLabels[2] !== '時間数')) {
     return { writes: [], skipped: `Weekly summary row labels did not match in ${sheetName}.` };
   }
   let salesGoal = 0;
@@ -122,6 +132,11 @@ export function buildWeeklySummaryWrites({ sourceRows, targetValues, reportDate,
     { range: `'${sheetName}'!T${headerIndex + 1}`, values: [['７日間結果']] },
     { range: `'${sheetName}'!W${headerIndex + 1}:AC${headerIndex + 1}`, values: [ROLLING_DAY_LABELS] },
   );
+  if (initializeLabels) {
+    ['売上', 'KPI', '時間数'].forEach((label, index) => {
+      writes.push({ range: `'${sheetName}'!P${headerIndex + index + 2}`, values: [[label]] });
+    });
+  }
   writes.push(
     { range: `'${sheetName}'!Q${headerIndex + 2}`, values: [[salesGoal]] },
     { range: `'${sheetName}'!T${headerIndex + 2}`, values: [[salesResult]] },

@@ -7,6 +7,7 @@ function makeSheet(legacy = false, preserveFormula = true) {
   const days = [
     ['10/5(月)', 94], ['10/6(火)', 97], ['10/7(水)', 91], ['10/8(木)', 95],
     ['10/9(金)', 84], ['10/10(土)', 91], ['10/11(日)', 80], ['10/12(月)', 81],
+    ['10/13(火)', 82],
   ];
   days.forEach(([label, hours], index) => {
     const row = index * 4;
@@ -34,6 +35,7 @@ const sourceRows = [
   ['10/9(金)', '1,043,000', '1,363,320', '', '', '', '', '', '', '1,990', '2,363'],
   ['10/10(土)', '1,043,000', '1,301,301', '', '', '', '', '', '', '2,060', '2,388'],
   ['10/11(日)', '1,086,000', '1,027,520', '', '', '', '', '', '', '2,180', '2,301'],
+  ['10/12(月)', '1,086,000', '1,100,000', '', '', '', '', '', '', '2,180', '2,500'],
 ];
 
 function writeValue(result, cell) {
@@ -75,4 +77,24 @@ test('does not partially write when one of the seven source days is missing', ()
   const result = buildWeeklySummaryWrites({ sourceRows: sourceRows.slice(0, 6), targetValues: makeSheet(), reportDate: '2026-10-12', sheetName: '目標＆振分' });
   assert.deepEqual(result.writes, []);
   assert.match(result.skipped, /10\/11/);
+});
+
+test('initializes a blank seven-day summary in the next DC block', () => {
+  const targetValues = makeSheet();
+  const result = buildWeeklySummaryWrites({ sourceRows, targetValues, reportDate: '2026-10-13', sheetName: '目標＆振分' });
+  assert.equal(writeValue(result, 'P34'), '売上');
+  assert.equal(writeValue(result, 'P35'), 'KPI');
+  assert.equal(writeValue(result, 'P36'), '時間数');
+  assert.equal(writeValue(result, 'Q33'), '７日間目標');
+  assert.equal(writeValue(result, 'T33'), '７日間結果');
+  assert.equal(writeValue(result, 'Q36'), '=Q35/25');
+  assert.equal(result.summary.days, 7);
+});
+
+test('refuses to overwrite an occupied new summary area', () => {
+  const targetValues = makeSheet();
+  targetValues[32][22] = 'other content';
+  const result = buildWeeklySummaryWrites({ sourceRows, targetValues, reportDate: '2026-10-13', sheetName: '目標＆振分' });
+  assert.deepEqual(result.writes, []);
+  assert.match(result.skipped, /occupied/);
 });
