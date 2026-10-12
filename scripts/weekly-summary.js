@@ -125,8 +125,8 @@ export function buildWeeklySummaryWrites({ sourceRows, targetValues, reportDate,
     });
   }
 
-  // Convert the current block's old week header when necessary. Q time target
-  // is an existing formula (= KPI target / 25), so preserve it.
+  // Convert the current block's old week header when necessary. Preserve any
+  // existing time-target formula; new values are written with RAW input mode.
   writes.push(
     { range: `'${sheetName}'!Q${headerIndex + 1}`, values: [['７日間目標']] },
     { range: `'${sheetName}'!T${headerIndex + 1}`, values: [['７日間結果']] },
@@ -145,7 +145,7 @@ export function buildWeeklySummaryWrites({ sourceRows, targetValues, reportDate,
     { range: `'${sheetName}'!T${headerIndex + 4}`, values: [[hoursResult]] },
   );
   if (!cellText(targetValues[headerIndex + 3]?.[16])) {
-    writes.push({ range: `'${sheetName}'!Q${headerIndex + 4}`, values: [[`=Q${headerIndex + 3}/25`]] });
+    writes.push({ range: `'${sheetName}'!Q${headerIndex + 4}`, values: [[kpiGoal / 25]] });
   }
   return {
     writes,
