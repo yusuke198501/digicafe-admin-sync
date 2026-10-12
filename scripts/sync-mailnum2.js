@@ -699,15 +699,17 @@ function locateIndividualTargetRow(values, date, hour, sheetName) {
   const titleIndex = values.findIndex(([columnA, columnB]) => text(columnA).startsWith(date.label) && text(columnB) === 'DC');
   if (titleIndex < 0) throw new Error(`${date.label} DC block was not found in ${sheetName}.`);
 
-  // AB:AE is the 個別 table: 目標 / 送信 / 目標 / 受信. Only write AC and AE.
-  const headerIndex = values.findIndex((columns, index) => index > titleIndex
-    && index < titleIndex + 35
-    && text(values[index - 1]?.[27]) === '個別'
-    && text(columns[27]) === '目標'
-    && text(columns[28]) === '送信'
-    && text(columns[29]) === '目標'
-    && text(columns[30]) === '受信');
-  if (headerIndex < 0) throw new Error(`The AB:AE 個別 table was not found below the ${date.label} DC block.`);
+  const headerIndex = values.findIndex((columns, index) => {
+    if (index <= titleIndex || index >= titleIndex + 35) return false;
+    const groupIndex = (values[index - 1] ?? []).findIndex((cell) => text(cell) === '個別');
+    return groupIndex >= 0
+      && text(columns[groupIndex]) === '目標'
+      && text(columns[groupIndex + 1]) === '送信'
+      && text(columns[groupIndex + 2]) === '目標'
+      && text(columns[groupIndex + 3]) === '受信';
+  });
+  if (headerIndex < 0) throw new Error(`The 個別 table was not found below the ${date.label} DC block.`);
+  const groupIndex = (values[headerIndex - 1] ?? []).findIndex((cell) => text(cell) === '個別');
 
   let rowIndex = values.findIndex((columns, index) => index > headerIndex
     && index < headerIndex + 10
@@ -721,7 +723,11 @@ function locateIndividualTargetRow(values, date, hour, sheetName) {
     replaceTimeLabel = rowIndex >= 0;
   }
   if (rowIndex < 0) throw new Error(`${hour} o'clock row was not found in the 個別 table of ${sheetName}.`);
-  return { row: rowIndex + 1, replaceTimeLabel };
+  return {
+    row: rowIndex + 1,
+    replaceTimeLabel,
+    columns: { send: groupIndex + 1, receive: groupIndex + 3 },
+  };
 }
 
 function normalizeSheetName(value) {
@@ -871,8 +877,8 @@ async function updateSheet(metrics, hour, date, canRunForSlot) {
             { range: `'${sheetName}'!${columnLetter(target.registrationColumns.ageVerifications)}${row}`, values: [[metrics.registrationMetrics.ageVerifications]] },
           ] : []),
           { range: `'${sheetName}'!AI${row}`, values: [[metrics.grossSales]] },
-          { range: `'${sheetName}'!AC${individualRow}`, values: [[metrics.individualSend]] },
-          { range: `'${sheetName}'!AE${individualRow}`, values: [[metrics.individualReceive]] },
+          { range: `'${sheetName}'!${columnLetter(individualTarget.columns.send)}${individualRow}`, values: [[metrics.individualSend]] },
+          { range: `'${sheetName}'!${columnLetter(individualTarget.columns.receive)}${individualRow}`, values: [[metrics.individualReceive]] },
           { range: `'${sheetName}'!AJ${row}`, values: [[metrics.paidMaleAllUsagePt]] },
           ...[
             ['A', metrics.boxAReceivemails], ['B', metrics.boxBReceivemails],
