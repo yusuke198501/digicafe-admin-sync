@@ -1,5 +1,5 @@
-const JST_WEEKDAYS = ['月', '火', '水', '木', '金', '土', '日'];
 const DAY_COLUMNS_START = 22; // W
+const ROLLING_DAY_LABELS = ['７日前', '６日前', '５日前', '４日前', '３日前', '２日前', '昨日'];
 
 function cellText(value) {
   return String(value ?? '').replace(/\s/g, '').trim();
@@ -23,10 +23,9 @@ function dateSequence(reportDate) {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(reportDate);
   if (!match) throw new Error(`Invalid report date: ${reportDate}`);
   const cursor = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
-  const mondayOffset = (cursor.getUTCDay() + 6) % 7;
-  cursor.setUTCDate(cursor.getUTCDate() - mondayOffset);
+  cursor.setUTCDate(cursor.getUTCDate() - 7);
   const dates = [];
-  while (cursor.toISOString().slice(0, 10) < reportDate) {
+  for (let day = 0; day < 7; day += 1) {
     dates.push(new Date(cursor));
     cursor.setUTCDate(cursor.getUTCDate() + 1);
   }
@@ -49,27 +48,13 @@ function locateDateTitle(values, date) {
     && cellText(row[1]) === 'DC');
 }
 
-function findWeekdayColumns(values, titleIndex) {
-  for (let rowIndex = titleIndex; rowIndex < Math.min(values.length, titleIndex + 6); rowIndex += 1) {
-    const columns = new Map();
-    for (let offset = 0; offset < 7; offset += 1) {
-      const value = cellText(values[rowIndex]?.[DAY_COLUMNS_START + offset]);
-      const weekday = JST_WEEKDAYS.find((day) => value === day || value === `${day}曜日`);
-      if (weekday) columns.set(weekday, DAY_COLUMNS_START + offset);
-    }
-    if (columns.size === 7) return { rowIndex, columns };
-  }
-  return null;
-}
-
 /**
- * Creates safe, narrowly-scoped cell updates for the weekly summary in the
- * current date's DC block. Returns a skip reason if there is no completed day
- * in the week or if the block does not have the expected weekly layout.
+ * Creates safe, narrowly-scoped updates for the seven completed days before
+ * the report date. The current DC block is converted from legacy week labels
+ * to rolling-day labels without touching its existing time-target formula.
  */
 export function buildWeeklySummaryWrites({ sourceRows, targetValues, reportDate, sheetName }) {
   const dates = dateSequence(reportDate);
-  if (!dates.length) return { writes: [], skipped: 'Monday has no completed days in this week.' };
 
   const sourceByDate = new Map();
   for (const row of sourceRows) {
@@ -82,24 +67,21 @@ export function buildWeeklySummaryWrites({ sourceRows, targetValues, reportDate,
   if (titleIndex < 0) return { writes: [], skipped: `DC block for ${reportDate} was not found.` };
   const headerIndex = targetValues.findIndex((row, index) => index >= titleIndex
     && index < titleIndex + 6
-    && cellText(row?.[16]) === '週目標'
-    && cellText(row?.[19]) === '週結果');
-  if (headerIndex < 0) return { writes: [], skipped: `Weekly summary headers were not found in ${sheetName}.` };
+    && ['週目標', '７日間目標'].includes(cellText(row?.[16]))
+    && ['週結果', '７日間結果'].includes(cellText(row?.[19])));
+  if (headerIndex < 0) return { writes: [], skipped: `Seven-day summary headers were not found in ${sheetName}.` };
 
   const rowLabels = [headerIndex + 1, headerIndex + 2, headerIndex + 3].map((index) => cellText(targetValues[index]?.[15]));
   if (rowLabels[0] !== '売上' || rowLabels[1] !== 'KPI' || rowLabels[2] !== '時間数') {
     return { writes: [], skipped: `Weekly summary row labels did not match in ${sheetName}.` };
   }
-  const weekdayLayout = findWeekdayColumns(targetValues, titleIndex);
-  if (!weekdayLayout) return { writes: [], skipped: `Weekday columns W:AC were not found in ${sheetName}.` };
-
   let salesGoal = 0;
   let salesResult = 0;
   let kpiGoal = 0;
   let kpiResult = 0;
   let hoursResult = 0;
   const writes = [];
-  for (const date of dates) {
+  for (const [index, date] of dates.entries()) {
     const key = `${date.getUTCMonth() + 1}/${date.getUTCDate()}`;
     const source = sourceByDate.get(key);
     if (!source) return { writes: [], skipped: `Source row for ${key} is missing.` };
@@ -118,8 +100,7 @@ export function buildWeeklySummaryWrites({ sourceRows, targetValues, reportDate,
     kpiResult += dayKpiResult;
     hoursResult += dayHours;
 
-    const weekday = JST_WEEKDAYS[(date.getUTCDay() + 6) % 7];
-    const column = columnName(weekdayLayout.columns.get(weekday));
+    const column = columnName(DAY_COLUMNS_START + index);
     const dayRows = [headerIndex + 1, headerIndex + 2, headerIndex + 3];
     const achieved = [
       daySalesResult >= daySalesGoal,
@@ -134,7 +115,13 @@ export function buildWeeklySummaryWrites({ sourceRows, targetValues, reportDate,
     });
   }
 
-  // Q time target is an existing formula (= weekly KPI target / 25); preserve it.
+  // Convert the current block's old week header when necessary. Q time target
+  // is an existing formula (= KPI target / 25), so preserve it.
+  writes.push(
+    { range: `'${sheetName}'!Q${headerIndex + 1}`, values: [['７日間目標']] },
+    { range: `'${sheetName}'!T${headerIndex + 1}`, values: [['７日間結果']] },
+    { range: `'${sheetName}'!W${headerIndex + 1}:AC${headerIndex + 1}`, values: [ROLLING_DAY_LABELS] },
+  );
   writes.push(
     { range: `'${sheetName}'!Q${headerIndex + 2}`, values: [[salesGoal]] },
     { range: `'${sheetName}'!T${headerIndex + 2}`, values: [[salesResult]] },
@@ -142,6 +129,9 @@ export function buildWeeklySummaryWrites({ sourceRows, targetValues, reportDate,
     { range: `'${sheetName}'!T${headerIndex + 3}`, values: [[kpiResult]] },
     { range: `'${sheetName}'!T${headerIndex + 4}`, values: [[hoursResult]] },
   );
+  if (!cellText(targetValues[headerIndex + 3]?.[16])) {
+    writes.push({ range: `'${sheetName}'!Q${headerIndex + 4}`, values: [[`=Q${headerIndex + 3}/25`]] });
+  }
   return {
     writes,
     summary: { salesGoal, salesResult, kpiGoal, kpiResult, hoursGoal: kpiGoal / 25, hoursResult, days: dates.length },
