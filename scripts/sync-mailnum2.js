@@ -636,12 +636,17 @@ function locateTargetRow(values, date, hour, sheetName) {
   const metricHeader = values[timeHeaderIndex - 1] ?? [];
   const resultHeader = values[timeHeaderIndex] ?? [];
   const resultColumn = (label) => {
-    const targetIndex = metricHeader.findIndex((column) => text(column) === label);
-    if (targetIndex < 0) return -1;
-    return text(resultHeader[targetIndex]) === '目標'
-      && text(resultHeader[targetIndex + 1]) === '結果'
-      ? targetIndex + 1
-      : -1;
+    // A:AD also contains other metrics with the same label (notably the
+    // overall DAU header). Select the label whose following row actually
+    // contains the paired 目標 / 結果 columns, rather than the first match.
+    for (let targetIndex = metricHeader.length - 1; targetIndex >= 0; targetIndex -= 1) {
+      if (text(metricHeader[targetIndex]) !== label) continue;
+      if (text(resultHeader[targetIndex]) === '目標'
+        && text(resultHeader[targetIndex + 1]) === '結果') {
+        return targetIndex + 1;
+      }
+    }
+    return -1;
   };
   const registrationColumns = {
     registrations: resultColumn('登録'),
