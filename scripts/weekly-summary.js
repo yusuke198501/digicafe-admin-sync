@@ -96,13 +96,24 @@ export function buildWeeklySummaryWrites({ sourceRows, targetValues, reportDate,
     const source = sourceByDate.get(key);
     if (!source) return { writes: [], skipped: `Source row for ${key} is missing.` };
 
-    const daySalesGoal = numberValue(source[1], `${key} sales target`);
-    const daySalesResult = numberValue(source[2], `${key} sales result`);
-    const dayKpiGoal = numberValue(source[9], `${key} KPI target`);
-    const dayKpiResult = numberValue(source[10], `${key} KPI result`);
+    let daySalesGoal;
+    let daySalesResult;
+    let dayKpiGoal;
+    let dayKpiResult;
     const dayTitleIndex = locateDateTitle(targetValues, date);
     if (dayTitleIndex < 0) return { writes: [], skipped: `DC block for ${key} was not found; cannot read planned time.` };
-    const dayHours = numberValue(targetValues[dayTitleIndex + 2]?.[35], `${key} AJ planned time`);
+    let dayHours;
+    try {
+      daySalesGoal = numberValue(source[1], `${key} sales target`);
+      daySalesResult = numberValue(source[2], `${key} sales result`);
+      dayKpiGoal = numberValue(source[9], `${key} KPI target`);
+      dayKpiResult = numberValue(source[10], `${key} KPI result`);
+      dayHours = numberValue(targetValues[dayTitleIndex + 2]?.[35], `${key} AJ planned time`);
+    } catch (error) {
+      // Weekly figures are supplemental to the hourly sync. Missing source
+      // results must skip only this summary, not fail the whole 9:05 update.
+      return { writes: [], skipped: `Source values are incomplete: ${error.message}` };
+    }
 
     salesGoal += daySalesGoal;
     salesResult += daySalesResult;
