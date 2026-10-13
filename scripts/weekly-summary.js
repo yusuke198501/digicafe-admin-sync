@@ -59,7 +59,17 @@ export function buildWeeklySummaryWrites({ sourceRows, targetValues, reportDate,
   const sourceByDate = new Map();
   for (const row of sourceRows) {
     const key = dateKeyFromCell(row?.[0]);
-    if (key) sourceByDate.set(key, row);
+    if (!key || sourceByDate.has(key)) continue;
+    try {
+      // The source sheet contains multiple tables with repeated dates. Keep
+      // the first row that has every weekly input, and ignore later partial
+      // rows (for example a duplicate date with a blank sales result).
+      [1, 2, 9, 10].forEach((column) => numberValue(row?.[column], `${key} source`));
+      sourceByDate.set(key, row);
+    } catch {
+      // A later duplicate row may be incomplete even when an earlier
+      // summary row for the same date contains the complete metrics.
+    }
   }
 
   const reportParts = reportDate.split('-').map(Number);
