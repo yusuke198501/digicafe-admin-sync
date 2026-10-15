@@ -27,7 +27,7 @@ function makeSheet(legacy = false, preserveFormula = true) {
   return values;
 }
 
-const sourceRows = [
+const originalRows = [
   ['10/5(月)', '1,043,000', '980,900', '', '', '', '', '', '', '2,180', '2,187'],
   ['10/6(火)', '1,043,000', '1,343,840', '', '', '', '', '', '', '2,180', '2,802'],
   ['10/7(水)', '1,043,000', '1,106,250', '', '', '', '', '', '', '1,910', '2,459'],
@@ -36,6 +36,11 @@ const sourceRows = [
   ['10/10(土)', '1,043,000', '1,301,301', '', '', '', '', '', '', '2,060', '2,388'],
   ['10/11(日)', '1,086,000', '1,027,520', '', '', '', '', '', '', '2,180', '2,301'],
   ['10/12(月)', '1,086,000', '1,100,000', '', '', '', '', '', '', '2,180', '2,500'],
+];
+const sourceRows = [
+  ...originalRows,
+  ...Array.from({ length: 42 - originalRows.length }, () => []),
+  ...originalRows.map(row => [row[0], row[1], '', '', '', '', '', '', '', row[9], '']),
 ];
 
 function writeValue(result, cell) {
@@ -74,9 +79,33 @@ test('adds the numeric time target only when its cell is blank', () => {
 });
 
 test('does not partially write when one of the seven source days is missing', () => {
-  const result = buildWeeklySummaryWrites({ sourceRows: sourceRows.slice(0, 6), targetValues: makeSheet(), reportDate: '2026-10-12', sheetName: '目標＆振分' });
+  const incomplete = sourceRows.map((row,index) => index === 6 ? [] : row);
+  const result = buildWeeklySummaryWrites({ sourceRows: incomplete, targetValues: makeSheet(), reportDate: '2026-10-12', sheetName: '目標＆振分' });
   assert.deepEqual(result.writes, []);
   assert.match(result.skipped, /10\/11/);
+});
+
+test('revised B/J goals from row 43+ drive totals and daily wins; C/K stay in original table', () => {
+  const revised = sourceRows.map(row => [...row]);
+  revised[42][1] = 900000;
+  revised[42][9] = 2200;
+  revised[42][2] = 999999999; // Must not replace original sales result.
+  revised[42][10] = 999999999; // Must not replace original KPI result.
+  const result = buildWeeklySummaryWrites({sourceRows:revised,targetValues:makeSheet(),reportDate:'2026-10-12',sheetName:'目標＆振分'});
+  assert.equal(result.summary.salesGoal,7201000);
+  assert.equal(result.summary.kpiGoal,14550);
+  assert.equal(result.summary.salesResult,8474421);
+  assert.equal(result.summary.kpiResult,17541);
+  assert.equal(writeValue(result,'W30'),'◯');
+  assert.equal(writeValue(result,'W31'),'⬤');
+});
+
+test('missing revised goals do not silently fall back to original targets', () => {
+  const revised = sourceRows.map(row => [...row]);
+  revised[42][9] = '';
+  const result = buildWeeklySummaryWrites({sourceRows:revised,targetValues:makeSheet(),reportDate:'2026-10-12',sheetName:'目標＆振分'});
+  assert.deepEqual(result.writes,[]);
+  assert.match(result.skipped,/Revised targets/);
 });
 
 test('initializes a blank seven-day summary in the next DC block', () => {
