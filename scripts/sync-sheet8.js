@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url';
 
 const BASE = 'https://log.digicafe.jp/partner/';
 const SHEET = "'シート8'";
-const HEADERS = ['日時', '送信数', '受信数', '送信ユーザー数', 'ログイン数', '入金者数', '入金額'];
+const HEADERS = ['日時', '送信数', '受信数', '送信ユーザー数', 'ログイン数', '入金者数', '入金額', '同報送信数', '同報受信'];
 const compact = (s) => String(s ?? '').replace(/\s/g, '');
 function number(s) {
   const value = compact(s).replace(/,/g, '');
@@ -39,14 +39,16 @@ export function parseInteractions(html) {
   }
   if (!table) throw new Error('時間毎表を取得できません。');
   const rows = table.find('tr').toArray().map(r => $(r).children('th,td').toArray().map(c => compact($(c).text())));
-  if (rows[0]?.[1] !== '全体' || rows[1]?.[0] !== 'やり取り送信' || rows[1]?.[1] !== 'やり取り受信') {
+  const metricIndexes = [0, 1, 5, 6];
+  const expectedMetrics = ['やり取り送信', 'やり取り受信', '同報配信', '同報受信'];
+  if (rows[0]?.[1] !== '全体' || metricIndexes.some((index, i) => rows[1]?.[index] !== expectedMetrics[i])) {
     throw new Error('全体・送受信の列配置が変わりました。');
   }
   const total = rows.filter(r => r[0] === '合計');
   const hours = rows.filter(r => /^\d+時$/.test(r[0]));
   if (total.length !== 1 || hours.length !== 24 || new Set(hours.map(r => r[0])).size !== 24) throw new Error('時間別24行または合計が不正です。');
-  const result = [number(total[0][1]), number(total[0][2])];
-  const sums = hours.reduce((a, r) => [a[0] + number(r[1]), a[1] + number(r[2])], [0, 0]);
+  const result = metricIndexes.map(index => number(total[0][index + 1]));
+  const sums = hours.reduce((a, r) => metricIndexes.map((index,i) => a[i] + number(r[index + 1])), [0, 0, 0, 0]);
   if (result.some((v, i) => v !== sums[i])) throw new Error('時間毎合計と合計行が一致しません。');
   return result;
 }
@@ -105,7 +107,7 @@ async function main() {
   }
   const sheets = google.sheets({version:'v4',auth:new google.auth.GoogleAuth({credentials:JSON.parse(required('GOOGLE_SERVICE_ACCOUNT_JSON')),scopes:['https://www.googleapis.com/auth/spreadsheets']})});
   const spreadsheetId = required('SPREADSHEET_ID');
-  const header = (await sheets.spreadsheets.values.get({spreadsheetId,range:`${SHEET}!A1:G1`})).data.values?.[0];
+  const header = (await sheets.spreadsheets.values.get({spreadsheetId,range:`${SHEET}!A1:I1`})).data.values?.[0];
   if (!header || HEADERS.some((h,i)=>h !== header[i])) throw new Error('シート8の見出しが一致しません。');
   const timestamps = (await sheets.spreadsheets.values.get({spreadsheetId,range:`${SHEET}!A2:A`})).data.values ?? [];
   if (timestamps.slice(-100).some(r => slot(String(r[0])) === slot(timestamp))) { console.log('SKIPPED: snapshot for this 5-minute slot exists'); return; }
@@ -125,7 +127,7 @@ async function main() {
   } catch { throw new Error('管理画面へのログインに失敗しました。'); }
   const mailUrl = new URL('mailnum_uf', BASE);
   mailUrl.search = new URLSearchParams({sex:'1',sort:'times',mail_start:date,mail_end:date,created_at_start:date,created_at_end:date,folder_rcv_source:'point',sum:'集計'});
-  const [sent,received] = parseInteractions(await get(mailUrl.href));
+  const [sent,received,broadcastSent,broadcastReceived] = parseInteractions(await get(mailUrl.href));
   const formHtml = await get(new URL('list', BASE).href);
   const listUrl = new URL('list', BASE);
   listUrl.search = memberQuery(formHtml,date,'message_sent');
@@ -136,8 +138,8 @@ async function main() {
   ptUrl.search = new URLSearchParams({action_start:date,action_end:date,created_at_start:date,created_at_end:date,sum:'集計'});
   const [payers,amount] = parsePayers(await get(ptUrl.href),date);
   if (!collectionWindowValid(start,new Date())) throw new Error('取得が4分以上経過、または日付が変わりました。追記しません。');
-  const row = [timestamp,sent,received,senders,logins,payers,amount];
-  const result = await sheets.spreadsheets.values.append({spreadsheetId,range:`${SHEET}!A:G`,valueInputOption:'RAW',insertDataOption:'INSERT_ROWS',requestBody:{values:[row]}});
+  const row = [timestamp,sent,received,senders,logins,payers,amount,broadcastSent,broadcastReceived];
+  const result = await sheets.spreadsheets.values.append({spreadsheetId,range:`${SHEET}!A:I`,valueInputOption:'RAW',insertDataOption:'INSERT_ROWS',requestBody:{values:[row]}});
   const range = result.data.updates?.updatedRange;
   if (!range) throw new Error('追記結果の範囲がありません。');
   const read = (await sheets.spreadsheets.values.get({spreadsheetId,range,valueRenderOption:'UNFORMATTED_VALUE'})).data.values;
