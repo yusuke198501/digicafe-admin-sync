@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { clickWindows, parseClickCount, fetchClickCount } from './cats-clicks.js';
 import { parseInteractions, parsePayers, parseMembers, memberQuery, slot, jstTimestamp, collectionWindowValid, maleReceiveUrl, parseMaleReceive } from './sync-sheet8.js';
 const hours = Array.from({length:24},(_,i)=>`<tr><td>${i}時</td><td>${i===0?312:0}</td><td>${i===0?335:0}</td><td>0</td><td>0</td><td>8</td><td>${i===0?1009:0}</td><td>${i===0?82:0}</td></tr>`).join('');
 const mail = `<h3>UF_MKT系データ(ログインアカウント別/時間毎)</h3><div><table><tr><th></th><th colspan="7">全体</th></tr><tr><th>やり取り送信</th><th>やり取り受信</th><th>個別送信</th><th>個別受信</th><th>同報配信キャラ数</th><th>同報配信</th><th>同報受信</th></tr>${hours}<tr><td>合計</td><td>312</td><td>335</td><td>0</td><td>0</td><td>8</td><td>1009</td><td>82</td></tr></table></div>`;
@@ -25,4 +26,33 @@ test('male receive rejects wrong date, gender/type, registration filter, or miss
 test('male receive searches today through tomorrow across month/year end',()=>{
   const q = new URL(maleReceiveUrl('2026-12-31')).searchParams;
   assert.equal(q.get('mail_end'),'2027-01-01'); assert.equal(q.get('sex'),'0'); assert.equal(q.get('type'),'2'); assert.equal(q.has('is_create'),false);
+});
+
+test('click windows cover midnight through snapshot minute without overlapping minutes',()=>{
+  assert.deepEqual(clickWindows('2026-10-15 02:05:12'),[['2026-10-15 00:00','2026-10-15 00:59'],['2026-10-15 01:00','2026-10-15 01:59'],['2026-10-15 02:00','2026-10-15 02:05']]);
+  assert.equal(clickWindows('2026-10-15 23:59:59').length,24);
+  assert.equal(clickWindows('2026-10-16 00:00:01').length,1);
+  assert.throws(()=>clickWindows('2026-10-15 24:00:00'));
+});
+const clickLog = {clientId:'8',clientName:'NORG',contentName:'デジカフェ_cross'};
+test('click count includes duplicates and all matching ads only',()=>{
+  const logs=[clickLog,clickLog,{...clickLog,contentName:'別広告'},{...clickLog,clientId:'9'},{...clickLog,clientName:'Other'}];
+  assert.equal(parseClickCount({params:{totalNum:5,logs}}),2);
+  assert.equal(parseClickCount({params:{totalNum:0,logs:[]}}),0);
+});
+test('click count rejects truncated logs, API errors, and malformed data',()=>{
+  for (const data of [{params:{totalNum:2,logs:[clickLog]}},{errors:{clickDateTime:'invalid'},params:{totalNum:0,logs:[]}},{params:{totalNum:1,logs:[{}]}},{}]) assert.throws(()=>parseClickCount(data));
+});
+test('click API uses fixed host, safe authentication, hourly windows and rate limit',async()=>{
+  const requests=[],waits=[];
+  const count = await fetchClickCount('2026-10-15 01:05:00','test-secret',{request:async(url,options)=>{
+    requests.push([url,options]);
+    return {ok:true,json:async()=>({params:{totalNum:2,logs:[clickLog,clickLog]}})};
+  },pause:async ms=>waits.push(ms)});
+  assert.equal(count,4);assert.deepEqual(waits,[1100]);assert.equal(requests[0][0],'https://afad-api-shiba.catsys.jp/log/click/listspan');
+  assert.equal(requests[0][1].headers.apiKey,'test-secret');assert.equal(requests[0][1].redirect,'error');
+  assert.equal(requests[1][1].body.get('clickDateTime'),'2026-10-15 01:00 - 2026-10-15 01:05');
+});
+test('click network failures do not expose secret or raw response',async()=>{
+  await assert.rejects(fetchClickCount('2026-10-15 00:05:00','test-secret',{request:async()=>{throw new Error('test-secret');}}),e=>!e.message.includes('test-secret'));
 });

@@ -4,10 +4,11 @@ import { CookieJar } from 'tough-cookie';
 import * as cheerio from 'cheerio';
 import { google } from 'googleapis';
 import { pathToFileURL } from 'node:url';
+import { fetchClickCount } from './cats-clicks.js';
 
 const BASE = 'https://log.digicafe.jp/partner/';
 const SHEET = "'シート8'";
-const HEADERS = ['日時', '送信数', '受信数', '送信ユーザー数', 'ログイン数', '入金者数', '入金額', '同報送信数', '同報受信', '男性メール受信数', '男性メール受信人数'];
+const HEADERS = ['日時', '送信数', '受信数', '送信ユーザー数', 'ログイン数', '入金者数', '入金額', '同報送信数', '同報受信', '男性メール受信数', '男性メール受信人数', '広告クリック数'];
 const compact = (s) => String(s ?? '').replace(/\s/g, '');
 function number(s) {
   const value = compact(s).replace(/,/g, '');
@@ -135,7 +136,7 @@ async function main() {
   }
   const sheets = google.sheets({version:'v4',auth:new google.auth.GoogleAuth({credentials:JSON.parse(required('GOOGLE_SERVICE_ACCOUNT_JSON')),scopes:['https://www.googleapis.com/auth/spreadsheets']})});
   const spreadsheetId = required('SPREADSHEET_ID');
-  const header = (await sheets.spreadsheets.values.get({spreadsheetId,range:`${SHEET}!A1:K1`})).data.values?.[0];
+  const header = (await sheets.spreadsheets.values.get({spreadsheetId,range:`${SHEET}!A1:L1`})).data.values?.[0];
   if (!header || HEADERS.some((h,i)=>h !== header[i])) throw new Error('シート8の見出しが一致しません。');
   const timestamps = (await sheets.spreadsheets.values.get({spreadsheetId,range:`${SHEET}!A2:A`})).data.values ?? [];
   if (timestamps.slice(-100).some(r => slot(String(r[0])) === slot(timestamp))) { console.log('SKIPPED: snapshot for this 5-minute slot exists'); return; }
@@ -171,9 +172,15 @@ async function main() {
   try { maleHtml = (await axios.get(maleReceiveUrl(date), {timeout:45000,headers:{'User-Agent':'Mozilla/5.0'}})).data; }
   catch { throw new Error('男性メール受信画面の取得に失敗しました。'); }
   const [maleReceived,maleReceivers] = parseMaleReceive(maleHtml,date);
+  // A CATS outage must not stop the existing A:K collection. Leave L blank
+  // rather than recording a false zero or copying a previous snapshot.
+  let clicks;
+  try { clicks = await fetchClickCount(timestamp,process.env.CATS_API_TOKEN); }
+  catch (e) { console.warn(`WARNING: L列は未取得（${e.message}）`); }
   if (!collectionWindowValid(start,new Date())) throw new Error('取得が4分以上経過、または日付が変わりました。追記しません。');
   const row = [timestamp,sent,received,senders,logins,payers,amount,broadcastSent,broadcastReceived,maleReceived,maleReceivers];
-  const result = await sheets.spreadsheets.values.append({spreadsheetId,range:`${SHEET}!A:K`,valueInputOption:'RAW',insertDataOption:'INSERT_ROWS',requestBody:{values:[row]}});
+  if (clicks !== undefined) row.push(clicks);
+  const result = await sheets.spreadsheets.values.append({spreadsheetId,range:`${SHEET}!A:L`,valueInputOption:'RAW',insertDataOption:'INSERT_ROWS',requestBody:{values:[row]}});
   const range = result.data.updates?.updatedRange;
   if (!range) throw new Error('追記結果の範囲がありません。');
   const read = (await sheets.spreadsheets.values.get({spreadsheetId,range,valueRenderOption:'UNFORMATTED_VALUE'})).data.values;
