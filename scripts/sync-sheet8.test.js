@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseInteractions, parsePayers, parseMembers, memberQuery, slot, jstTimestamp } from './sync-sheet8.js';
+import { parseInteractions, parsePayers, parseMembers, memberQuery, slot, jstTimestamp, collectionWindowValid } from './sync-sheet8.js';
 const hours = Array.from({length:24},(_,i)=>`<tr><td>${i}時</td><td>${i===0?312:0}</td><td>${i===0?335:0}</td></tr>`).join('');
 const mail = `<h3>UF_MKT系データ(ログインアカウント別/時間毎)</h3><div><table><tr><th></th><th colspan="7">全体</th></tr><tr><th>やり取り送信</th><th>やり取り受信</th></tr>${hours}<tr><td>合計</td><td>312</td><td>335</td></tr></table></div>`;
 test('exact interaction columns, not overall or broadcast',()=>assert.deepEqual(parseInteractions(mail),[312,335]));
@@ -15,3 +15,4 @@ test('member query preserves checked area and paid cohort, clears other dates',(
   assert.equal(q.get('is_paying'),'1'); assert.equal(q.get('sex'),'0'); assert.equal(q.get('login_start'),''); assert.equal(q.get('message_sent_start'),'2026-10-15'); assert.deepEqual(q.getAll('area[]'),['1','2']);
 });
 test('JST date and 5 minute deduplication',()=>{assert.equal(jstTimestamp(new Date('2026-10-14T15:02:30Z')),'2026-10-15 00:02:30'); assert.equal(slot('2026-10-15 09:19:59'),'2026-10-15 09:15'); assert.equal(slot('日時'),null);});
+test('collection may cross a five-minute boundary but not midnight or four minutes',()=>{assert.equal(collectionWindowValid(new Date('2026-10-15T00:29:29Z'),new Date('2026-10-15T00:30:09Z')),true);assert.equal(collectionWindowValid(new Date('2026-10-15T14:59:29Z'),new Date('2026-10-15T15:00:09Z')),false);assert.equal(collectionWindowValid(new Date('2026-10-15T00:00:00Z'),new Date('2026-10-15T00:04:00Z')),false);});
