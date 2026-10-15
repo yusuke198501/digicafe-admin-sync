@@ -23,6 +23,9 @@ export function slot(timestamp) {
   if (!/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$/.test(timestamp)) return null;
   return timestamp.slice(0, 14) + String(Math.floor(Number(timestamp.slice(14, 16)) / 5) * 5).padStart(2, '0');
 }
+export function collectionWindowValid(start, end) {
+  return end >= start && end - start < 240000 && jstTimestamp(start).slice(0,10) === jstTimestamp(end).slice(0,10);
+}
 export function parseInteractions(html) {
   const $ = cheerio.load(html);
   const title = 'UF_MKT系データ(ログインアカウント別/時間毎)';
@@ -132,7 +135,7 @@ async function main() {
   const ptUrl = new URL('status/pt',BASE);
   ptUrl.search = new URLSearchParams({action_start:date,action_end:date,created_at_start:date,created_at_end:date,sum:'集計'});
   const [payers,amount] = parsePayers(await get(ptUrl.href),date);
-  if (slot(jstTimestamp()) !== slot(timestamp)) throw new Error('取得中に5分枠が変わりました。追記せず次回取得します。');
+  if (!collectionWindowValid(start,new Date())) throw new Error('取得が4分以上経過、または日付が変わりました。追記しません。');
   const row = [timestamp,sent,received,senders,logins,payers,amount];
   const result = await sheets.spreadsheets.values.append({spreadsheetId,range:`${SHEET}!A:G`,valueInputOption:'RAW',insertDataOption:'INSERT_ROWS',requestBody:{values:[row]}});
   const range = result.data.updates?.updatedRange;
