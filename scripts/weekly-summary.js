@@ -57,18 +57,34 @@ export function buildWeeklySummaryWrites({ sourceRows, targetValues, reportDate,
   const dates = dateSequence(reportDate);
 
   const sourceByDate = new Map();
-  for (const row of sourceRows) {
+  // Results remain in the original table. Revised goals are a separate
+  // date-indexed table starting at sheet row 43, and may have blank results.
+  for (const row of sourceRows.slice(0, 42)) {
     const key = dateKeyFromCell(row?.[0]);
     if (!key || sourceByDate.has(key)) continue;
     try {
       // The source sheet contains multiple tables with repeated dates. Keep
       // the first row that has every weekly input, and ignore later partial
       // rows (for example a duplicate date with a blank sales result).
-      [1, 2, 9, 10].forEach((column) => numberValue(row?.[column], `${key} source`));
+      [2, 10].forEach((column) => numberValue(row?.[column], `${key} source result`));
       sourceByDate.set(key, row);
     } catch {
       // A later duplicate row may be incomplete even when an earlier
       // summary row for the same date contains the complete metrics.
+    }
+  }
+
+  const revisedGoalsByDate = new Map();
+  for (const row of sourceRows.slice(42)) {
+    const key = dateKeyFromCell(row?.[0]);
+    if (!key || revisedGoalsByDate.has(key)) continue;
+    try {
+      revisedGoalsByDate.set(key, {
+        sales: numberValue(row?.[1], `${key} revised sales target (B43+)`),
+        kpi: numberValue(row?.[9], `${key} revised KPI target (J43+)`),
+      });
+    } catch {
+      // Never substitute the old target when a revised target is incomplete.
     }
   }
 
@@ -105,6 +121,8 @@ export function buildWeeklySummaryWrites({ sourceRows, targetValues, reportDate,
     const key = `${date.getUTCMonth() + 1}/${date.getUTCDate()}`;
     const source = sourceByDate.get(key);
     if (!source) return { writes: [], skipped: `Source row for ${key} is missing.` };
+    const revisedGoal = revisedGoalsByDate.get(key);
+    if (!revisedGoal) return { writes: [], skipped: `Revised targets for ${key} in B43+/J43+ are missing or incomplete.` };
 
     let daySalesGoal;
     let daySalesResult;
@@ -114,9 +132,9 @@ export function buildWeeklySummaryWrites({ sourceRows, targetValues, reportDate,
     if (dayTitleIndex < 0) return { writes: [], skipped: `DC block for ${key} was not found; cannot read planned time.` };
     let dayHours;
     try {
-      daySalesGoal = numberValue(source[1], `${key} sales target`);
+      daySalesGoal = revisedGoal.sales;
       daySalesResult = numberValue(source[2], `${key} sales result`);
-      dayKpiGoal = numberValue(source[9], `${key} KPI target`);
+      dayKpiGoal = revisedGoal.kpi;
       dayKpiResult = numberValue(source[10], `${key} KPI result`);
       dayHours = numberValue(targetValues[dayTitleIndex + 2]?.[35], `${key} AJ planned time`);
     } catch (error) {
