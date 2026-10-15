@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url';
 
 const BASE = 'https://log.digicafe.jp/partner/';
 const SHEET = "'シート8'";
-const HEADERS = ['日時', '送信数', '受信数', '送信ユーザー数', 'ログイン数', '入金者数', '入金額', '同報送信数', '同報受信'];
+const HEADERS = ['日時', '送信数', '受信数', '送信ユーザー数', 'ログイン数', '入金者数', '入金額', '同報送信数', '同報受信', '男性メール受信数', '男性メール受信人数'];
 const compact = (s) => String(s ?? '').replace(/\s/g, '');
 function number(s) {
   const value = compact(s).replace(/,/g, '');
@@ -74,6 +74,34 @@ export function parseMembers(html) {
   if (count >= 10000) throw new Error('会員一覧の上限に達しています。');
   return count;
 }
+export function maleReceiveUrl(date) {
+  const day = new Date(`${date}T00:00:00Z`);
+  if (!Number.isFinite(day.getTime()) || day.toISOString().slice(0,10) !== date) throw new Error('日付が不正です。');
+  day.setUTCDate(day.getUTCDate() + 1);
+  const url = new URL('http://log.digicafe.jp:8081/admin/data/user/mail');
+  url.search = new URLSearchParams({sex:'0',type:'2',mail_start:date,mail_end:day.toISOString().slice(0,10),code:'',frm:'',created_at_start:`${date.slice(0,7)}-01`,created_at_end:date,sum:'集計'});
+  return url.href;
+}
+export function parseMaleReceive(html, date) {
+  const $ = cheerio.load(html);
+  const q = new URL(maleReceiveUrl(date)).searchParams;
+  const form = $('input[name="mail_start"]').closest('form');
+  for (const name of ['mail_start','mail_end']) {
+    if (form.find(`input[name="${name}"]`).attr('value') !== q.get(name)) throw new Error('男性受信の検索期間が一致しません。');
+  }
+  for (const [name,value] of [['sex','0'],['type','2']]) {
+    if (form.find(`input[name="${name}"][value="${value}"][checked]`).length !== 1) throw new Error('男性・受信の条件が一致しません。');
+  }
+  if (form.find('input[name="is_create"][checked]').length) throw new Error('登録日を考慮する設定が有効です。');
+  const candidates = [];
+  for (const table of $('table').toArray()) {
+    const rows = $(table).find('tr').toArray().map(r => $(r).children('th,td').toArray().map(c => compact($(c).text())));
+    if (rows[0]?.[0] !== 'メール総数' || rows[0]?.[1] !== '人数' || rows.length !== 2) continue;
+    candidates.push([number(rows[1][0].replace(/通$/, '')),number(rows[1][1].replace(/人$/, ''))]);
+  }
+  if (candidates.length !== 1) throw new Error('男性受信のメール総数・人数が一意に取得できません。');
+  return candidates[0];
+}
 export function memberQuery(html, date, type) {
   const $ = cheerio.load(html);
   const form = $('input[name="sum"]').closest('form');
@@ -107,7 +135,7 @@ async function main() {
   }
   const sheets = google.sheets({version:'v4',auth:new google.auth.GoogleAuth({credentials:JSON.parse(required('GOOGLE_SERVICE_ACCOUNT_JSON')),scopes:['https://www.googleapis.com/auth/spreadsheets']})});
   const spreadsheetId = required('SPREADSHEET_ID');
-  const header = (await sheets.spreadsheets.values.get({spreadsheetId,range:`${SHEET}!A1:I1`})).data.values?.[0];
+  const header = (await sheets.spreadsheets.values.get({spreadsheetId,range:`${SHEET}!A1:K1`})).data.values?.[0];
   if (!header || HEADERS.some((h,i)=>h !== header[i])) throw new Error('シート8の見出しが一致しません。');
   const timestamps = (await sheets.spreadsheets.values.get({spreadsheetId,range:`${SHEET}!A2:A`})).data.values ?? [];
   if (timestamps.slice(-100).some(r => slot(String(r[0])) === slot(timestamp))) { console.log('SKIPPED: snapshot for this 5-minute slot exists'); return; }
@@ -137,9 +165,15 @@ async function main() {
   const ptUrl = new URL('status/pt',BASE);
   ptUrl.search = new URLSearchParams({action_start:date,action_end:date,created_at_start:date,created_at_end:date,sum:'集計'});
   const [payers,amount] = parsePayers(await get(ptUrl.href),date);
+  // This endpoint has no partner navigation/logout link; validate its actual
+  // form conditions and summary table instead. Never send credentials to it.
+  let maleHtml;
+  try { maleHtml = (await axios.get(maleReceiveUrl(date), {timeout:45000,headers:{'User-Agent':'Mozilla/5.0'}})).data; }
+  catch { throw new Error('男性メール受信画面の取得に失敗しました。'); }
+  const [maleReceived,maleReceivers] = parseMaleReceive(maleHtml,date);
   if (!collectionWindowValid(start,new Date())) throw new Error('取得が4分以上経過、または日付が変わりました。追記しません。');
-  const row = [timestamp,sent,received,senders,logins,payers,amount,broadcastSent,broadcastReceived];
-  const result = await sheets.spreadsheets.values.append({spreadsheetId,range:`${SHEET}!A:I`,valueInputOption:'RAW',insertDataOption:'INSERT_ROWS',requestBody:{values:[row]}});
+  const row = [timestamp,sent,received,senders,logins,payers,amount,broadcastSent,broadcastReceived,maleReceived,maleReceivers];
+  const result = await sheets.spreadsheets.values.append({spreadsheetId,range:`${SHEET}!A:K`,valueInputOption:'RAW',insertDataOption:'INSERT_ROWS',requestBody:{values:[row]}});
   const range = result.data.updates?.updatedRange;
   if (!range) throw new Error('追記結果の範囲がありません。');
   const read = (await sheets.spreadsheets.values.get({spreadsheetId,range,valueRenderOption:'UNFORMATTED_VALUE'})).data.values;
