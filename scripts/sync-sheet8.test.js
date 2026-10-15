@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseInteractions, parsePayers, parseMembers, memberQuery, slot, jstTimestamp, collectionWindowValid } from './sync-sheet8.js';
+import { parseInteractions, parsePayers, parseMembers, memberQuery, slot, jstTimestamp, collectionWindowValid, maleReceiveUrl, parseMaleReceive } from './sync-sheet8.js';
 const hours = Array.from({length:24},(_,i)=>`<tr><td>${i}時</td><td>${i===0?312:0}</td><td>${i===0?335:0}</td><td>0</td><td>0</td><td>8</td><td>${i===0?1009:0}</td><td>${i===0?82:0}</td></tr>`).join('');
 const mail = `<h3>UF_MKT系データ(ログインアカウント別/時間毎)</h3><div><table><tr><th></th><th colspan="7">全体</th></tr><tr><th>やり取り送信</th><th>やり取り受信</th><th>個別送信</th><th>個別受信</th><th>同報配信キャラ数</th><th>同報配信</th><th>同報受信</th></tr>${hours}<tr><td>合計</td><td>312</td><td>335</td><td>0</td><td>0</td><td>8</td><td>1009</td><td>82</td></tr></table></div>`;
 test('exact interaction and broadcast columns, excluding broadcast character count',()=>assert.deepEqual(parseInteractions(mail),[312,335,1009,82]));
@@ -17,3 +17,12 @@ test('member query preserves checked area and paid cohort, clears other dates',(
 });
 test('JST date and 5 minute deduplication',()=>{assert.equal(jstTimestamp(new Date('2026-10-14T15:02:30Z')),'2026-10-15 00:02:30'); assert.equal(slot('2026-10-15 09:19:59'),'2026-10-15 09:15'); assert.equal(slot('日時'),null);});
 test('collection may cross a five-minute boundary but not midnight or four minutes',()=>{assert.equal(collectionWindowValid(new Date('2026-10-15T00:29:29Z'),new Date('2026-10-15T00:30:09Z')),true);assert.equal(collectionWindowValid(new Date('2026-10-15T14:59:29Z'),new Date('2026-10-15T15:00:09Z')),false);assert.equal(collectionWindowValid(new Date('2026-10-15T00:00:00Z'),new Date('2026-10-15T00:04:00Z')),false);});
+const maleHtml = '<form><input name="mail_start" value="2026-10-15"><input name="mail_end" value="2026-10-16"><input name="sex" type="radio" value="0" checked><input name="type" type="radio" value="2" checked><input name="is_create" type="checkbox"></form><table><tr><td>メール総数</td><td>人数</td><td>平均通数</td></tr><tr><td>77237 通</td><td>22078 人</td><td>3.5 通</td></tr></table>';
+test('male receive uses summary totals, not average or individual users',()=>assert.deepEqual(parseMaleReceive(maleHtml,'2026-10-15'),[77237,22078]));
+test('male receive rejects wrong date, gender/type, registration filter, or missing table',()=>{
+  for (const html of [maleHtml.replace('2026-10-16','2026-10-15'),maleHtml.replace('value="2" checked','value="1" checked'),maleHtml.replace('type="checkbox"','type="checkbox" checked'),maleHtml.replace('メール総数','別項目')]) assert.throws(()=>parseMaleReceive(html,'2026-10-15'));
+});
+test('male receive searches today through tomorrow across month/year end',()=>{
+  const q = new URL(maleReceiveUrl('2026-12-31')).searchParams;
+  assert.equal(q.get('mail_end'),'2027-01-01'); assert.equal(q.get('sex'),'0'); assert.equal(q.get('type'),'2'); assert.equal(q.has('is_create'),false);
+});
