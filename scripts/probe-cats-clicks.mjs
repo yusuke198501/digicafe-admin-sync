@@ -11,7 +11,8 @@ const response = await fetch(base + '/log/click/listspan', {
 if (!response.ok) throw new Error('CATS HTTP status ' + response.status);
 const data = await response.json();
 if (data.errors?.length || !Array.isArray(data.params?.logs)) {
-  throw new Error('CATS response invalid: code=' + String(data.code));
+  const errors = JSON.stringify(data.errors ?? []).split(token).join('[REDACTED]').slice(0,1500);
+  throw new Error('CATS response invalid: code=' + String(data.code) + ' errors=' + errors);
 }
 const logs = data.params.logs;
 const total = Number(data.params.totalNum);
