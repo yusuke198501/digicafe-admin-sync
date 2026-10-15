@@ -1,0 +1,27 @@
+name: シート8 5分集計
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: sheet8-snapshot
+  cancel-in-progress: false
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - run: npm install --ignore-scripts --no-audit --no-fund
+      - run: node --test scripts/sync-sheet8.test.js
+      - run: node scripts/sync-sheet8.js
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          LOG_ACCOUNT: ${{ secrets.LOG_ACCOUNT }}
+          LOG_PASSWORD: ${{ secrets.LOG_PASSWORD }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          SPREADSHEET_ID: ${{ secrets.MAILNUM2_SPREADSHEET_ID }}
