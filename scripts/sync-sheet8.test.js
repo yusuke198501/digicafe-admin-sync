@@ -1,10 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseInteractions, parsePayers, parseMembers, memberQuery, slot, jstTimestamp, collectionWindowValid } from './sync-sheet8.js';
-const hours = Array.from({length:24},(_,i)=>`<tr><td>${i}時</td><td>${i===0?312:0}</td><td>${i===0?335:0}</td></tr>`).join('');
-const mail = `<h3>UF_MKT系データ(ログインアカウント別/時間毎)</h3><div><table><tr><th></th><th colspan="7">全体</th></tr><tr><th>やり取り送信</th><th>やり取り受信</th></tr>${hours}<tr><td>合計</td><td>312</td><td>335</td></tr></table></div>`;
-test('exact interaction columns, not overall or broadcast',()=>assert.deepEqual(parseInteractions(mail),[312,335]));
-test('reject missing data and inconsistent totals',()=>{assert.throws(()=>parseInteractions('')); assert.throws(()=>parseInteractions(mail.replace('<td>335</td></tr></table>','<td>336</td></tr></table>')));});
+const hours = Array.from({length:24},(_,i)=>`<tr><td>${i}時</td><td>${i===0?312:0}</td><td>${i===0?335:0}</td><td>0</td><td>0</td><td>8</td><td>${i===0?1009:0}</td><td>${i===0?82:0}</td></tr>`).join('');
+const mail = `<h3>UF_MKT系データ(ログインアカウント別/時間毎)</h3><div><table><tr><th></th><th colspan="7">全体</th></tr><tr><th>やり取り送信</th><th>やり取り受信</th><th>個別送信</th><th>個別受信</th><th>同報配信キャラ数</th><th>同報配信</th><th>同報受信</th></tr>${hours}<tr><td>合計</td><td>312</td><td>335</td><td>0</td><td>0</td><td>8</td><td>1009</td><td>82</td></tr></table></div>`;
+test('exact interaction and broadcast columns, excluding broadcast character count',()=>assert.deepEqual(parseInteractions(mail),[312,335,1009,82]));
+test('reject missing data and inconsistent totals',()=>{assert.throws(()=>parseInteractions('')); assert.throws(()=>parseInteractions(mail.replace('<td>82</td></tr></table>','<td>83</td></tr></table>')));});
+test('reject missing broadcast header instead of taking an adjacent metric',()=>assert.throws(()=>parseInteractions(mail.replace('<th>同報配信</th>','<th>別の項目</th>'))));
 test('paid male sales excludes gross and sponsor',()=>{
   const html='<table><tr><th colspan="2">グロス</th><th colspan="2">有料男性</th><th>スポンサー決済</th></tr><tr><th>日時</th><th>売上</th><th>売上</th><th>課金者数</th><th>売上</th></tr><tr><td>2026-10-15</td><td>150,010</td><td>148,710</td><td>34</td><td>1,300</td></tr></table>';
   assert.deepEqual(parsePayers(html,'2026-10-15'),[34,148710]); assert.throws(()=>parsePayers(html,'2026-10-14'));
