@@ -124,6 +124,17 @@ export function memberQuery(html, date, type) {
   return q;
 }
 function required(name) { if (!process.env[name]) throw new Error(`${name} is missing`); return process.env[name]; }
+export async function metricOrZero(label, width, collect, warn = message => console.warn(message)) {
+  try {
+    const values = await collect();
+    if (!Array.isArray(values) || values.length !== width || values.some(v => !Number.isSafeInteger(v) || v < 0)) throw new Error();
+    return values;
+  } catch {
+    // Never print raw network errors: request configs may contain credentials.
+    warn(`WARNING: ${label} の取得に失敗したため ${width}項目を0で記録します。`);
+    return Array(width).fill(0);
+  }
+}
 async function main() {
   const start = new Date(), timestamp = jstTimestamp(start), date = timestamp.slice(0,10);
   // Old queued dispatches must not manufacture historical snapshots.
@@ -149,37 +160,46 @@ async function main() {
       return r.data;
     } catch { throw new Error('管理画面の取得または認証に失敗しました。'); }
   }
+  let loggedIn = false;
   try {
     await client.get(BASE);
     const login = await client.post(BASE,new URLSearchParams({mode:'login',account:required('LOG_ACCOUNT'),pass:required('LOG_PASSWORD')}));
     if (!String(login.data).includes('ログアウト')) throw new Error();
-  } catch { throw new Error('管理画面へのログインに失敗しました。'); }
+    loggedIn = true;
+  } catch { console.warn('WARNING: 管理画面へのログインに失敗。該当項目は0で記録し、独立した取得は続行します。'); }
+  async function partnerGet(url) {
+    if (!loggedIn) throw new Error('管理画面が未認証です。');
+    return get(url);
+  }
   const mailUrl = new URL('mailnum_uf', BASE);
   mailUrl.search = new URLSearchParams({sex:'1',sort:'times',mail_start:date,mail_end:date,created_at_start:date,created_at_end:date,folder_rcv_source:'point',sum:'集計'});
-  const [sent,received,broadcastSent,broadcastReceived] = parseInteractions(await get(mailUrl.href));
-  const formHtml = await get(new URL('list', BASE).href);
-  const listUrl = new URL('list', BASE);
-  listUrl.search = memberQuery(formHtml,date,'message_sent');
-  const senders = parseMembers(await get(listUrl.href));
-  listUrl.search = memberQuery(formHtml,date,'login');
-  const logins = parseMembers(await get(listUrl.href));
+  // Independent metric groups run concurrently. One missing table, failed
+  // request, or authentication failure cannot abort the remaining metrics.
+  const formHtml = partnerGet(new URL('list', BASE).href).catch(()=>null);
+  async function memberCount(type) {
+    const html = await formHtml;
+    if (!html) throw new Error('会員検索フォームがありません。');
+    const url = new URL('list',BASE);
+    url.search = memberQuery(html,date,type);
+    return [parseMembers(await partnerGet(url.href))];
+  }
   const ptUrl = new URL('status/pt',BASE);
   ptUrl.search = new URLSearchParams({action_start:date,action_end:date,created_at_start:date,created_at_end:date,sum:'集計'});
-  const [payers,amount] = parsePayers(await get(ptUrl.href),date);
   // This endpoint has no partner navigation/logout link; validate its actual
   // form conditions and summary table instead. Never send credentials to it.
-  let maleHtml;
-  try { maleHtml = (await axios.get(maleReceiveUrl(date), {timeout:45000,headers:{'User-Agent':'Mozilla/5.0'}})).data; }
-  catch { throw new Error('男性メール受信画面の取得に失敗しました。'); }
-  const [maleReceived,maleReceivers] = parseMaleReceive(maleHtml,date);
-  // A CATS outage must not stop the existing A:K collection. Leave L blank
-  // rather than recording a false zero or copying a previous snapshot.
-  let clicks;
-  try { clicks = await fetchClickCount(timestamp,process.env.CATS_API_TOKEN); }
-  catch (e) { console.warn(`WARNING: L列は未取得（${e.message}）`); }
+  const [[sent,received,broadcastSent,broadcastReceived],[senders],[logins],[payers,amount],[maleReceived,maleReceivers],[clicks]] = await Promise.all([
+    metricOrZero('B/C/H/I 送受信・同報',4,async()=>parseInteractions(await partnerGet(mailUrl.href))),
+    metricOrZero('D 送信ユーザー数',1,()=>memberCount('message_sent')),
+    metricOrZero('E ログイン数',1,()=>memberCount('login')),
+    metricOrZero('F/G 入金者数・入金額',2,async()=>parsePayers(await partnerGet(ptUrl.href),date)),
+    metricOrZero('J/K 男性メール受信数・人数',2,async()=>{
+      const response = await axios.get(maleReceiveUrl(date),{timeout:45000,headers:{'User-Agent':'Mozilla/5.0'}});
+      return parseMaleReceive(response.data,date);
+    }),
+    metricOrZero('L 広告クリック数',1,async()=>[await fetchClickCount(timestamp,process.env.CATS_API_TOKEN)])
+  ]);
   if (!collectionWindowValid(start,new Date())) throw new Error('取得が4分以上経過、または日付が変わりました。追記しません。');
-  const row = [timestamp,sent,received,senders,logins,payers,amount,broadcastSent,broadcastReceived,maleReceived,maleReceivers];
-  if (clicks !== undefined) row.push(clicks);
+  const row = [timestamp,sent,received,senders,logins,payers,amount,broadcastSent,broadcastReceived,maleReceived,maleReceivers,clicks];
   const result = await sheets.spreadsheets.values.append({spreadsheetId,range:`${SHEET}!A:L`,valueInputOption:'RAW',insertDataOption:'INSERT_ROWS',requestBody:{values:[row]}});
   const range = result.data.updates?.updatedRange;
   if (!range) throw new Error('追記結果の範囲がありません。');

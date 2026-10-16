@@ -22,13 +22,15 @@ export function parseClickCount(data) {
 export async function fetchClickCount(timestamp, token, {request=fetch,pause=ms=>new Promise(r=>setTimeout(r,ms))}={}) {
   if (!token) throw new Error('CATS_API_TOKEN is missing');
   let clicks = 0;
+  const overall = AbortSignal.timeout(75000);
   const windows = clickWindows(timestamp);
   for (let i=0;i<windows.length;i++) {
     // API allows at most one request per second and at most one hour per query.
     if (i) await pause(1100);
     let response, data;
     try {
-      response = await request(ENDPOINT,{method:'POST',redirect:'error',signal:AbortSignal.timeout(15000),headers:{apiKey:token,'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({clickDateTime:windows[i].join(' - ')})});
+      overall.throwIfAborted();
+      response = await request(ENDPOINT,{method:'POST',redirect:'error',signal:AbortSignal.any([overall,AbortSignal.timeout(15000)]),headers:{apiKey:token,'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({clickDateTime:windows[i].join(' - ')})});
       if (!response.ok) throw new Error();
       data = await response.json();
     } catch { throw new Error('クリックAPIへの接続または応答の読み取りに失敗しました。'); }

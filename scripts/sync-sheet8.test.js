@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { clickWindows, parseClickCount, fetchClickCount } from './cats-clicks.js';
+import { metricOrZero } from './sync-sheet8.js';
 import { parseInteractions, parsePayers, parseMembers, memberQuery, slot, jstTimestamp, collectionWindowValid, maleReceiveUrl, parseMaleReceive } from './sync-sheet8.js';
 const hours = Array.from({length:24},(_,i)=>`<tr><td>${i}時</td><td>${i===0?312:0}</td><td>${i===0?335:0}</td><td>0</td><td>0</td><td>8</td><td>${i===0?1009:0}</td><td>${i===0?82:0}</td></tr>`).join('');
 const mail = `<h3>UF_MKT系データ(ログインアカウント別/時間毎)</h3><div><table><tr><th></th><th colspan="7">全体</th></tr><tr><th>やり取り送信</th><th>やり取り受信</th><th>個別送信</th><th>個別受信</th><th>同報配信キャラ数</th><th>同報配信</th><th>同報受信</th></tr>${hours}<tr><td>合計</td><td>312</td><td>335</td><td>0</td><td>0</td><td>8</td><td>1009</td><td>82</td></tr></table></div>`;
@@ -55,4 +56,24 @@ test('click API uses fixed host, safe authentication, hourly windows and rate li
 });
 test('click network failures do not expose secret or raw response',async()=>{
   await assert.rejects(fetchClickCount('2026-10-15 00:05:00','test-secret',{request:async()=>{throw new Error('test-secret');}}),e=>!e.message.includes('test-secret'));
+});
+
+test('missing payment row becomes two zeros without blocking independent metrics',async()=>{
+  const warnings=[];
+  const rows=await Promise.all([
+    metricOrZero('F/G',2,()=>parsePayers('<html></html>','2026-10-16'),m=>warnings.push(m)),
+    metricOrZero('L',1,async()=>[112],m=>warnings.push(m))
+  ]);
+  assert.deepEqual(rows,[[0,0],[112]]);assert.equal(warnings.length,1);
+});
+test('every failed metric group has numeric zero fallback, no secret leakage',async()=>{
+  for (const width of [1,2,4]) {
+    const warnings=[];
+    assert.deepEqual(await metricOrZero('test',width,async()=>{throw new Error('private-token');},m=>warnings.push(m)),Array(width).fill(0));
+    assert.equal(warnings.length,1);assert.equal(warnings[0].includes('private-token'),false);
+  }
+});
+test('successful zero and valid values remain unchanged; malformed values become zero',async()=>{
+  assert.deepEqual(await metricOrZero('test',2,async()=>[0,42]),[0,42]);
+  for (const values of [[undefined],[NaN],[-1],[],['12']]) assert.deepEqual(await metricOrZero('test',1,async()=>values,()=>{}),[0]);
 });
