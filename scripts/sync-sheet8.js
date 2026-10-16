@@ -8,7 +8,10 @@ import { fetchClickCount } from './cats-clicks.js';
 
 const BASE = 'https://log.digicafe.jp/partner/';
 const SHEET = "'シート8'";
-const HEADERS = ['日時', '送信数', '受信数', '送信ユーザー数', 'ログイン数', '入金者数', '入金額', '同報送信数', '同報受信', '男性メール受信数', '男性メール受信人数', '広告クリック数'];
+export function validateSnapshotDestination(sheets) {
+  const sheet = sheets?.find(s => s.properties?.sheetId === 1467610996)?.properties;
+  if (!sheet || sheet.title !== 'シート8' || sheet.gridProperties?.columnCount < 12) throw new Error('シート8の書き込み先を確認できません。');
+}
 const compact = (s) => String(s ?? '').replace(/\s/g, '');
 function number(s) {
   const value = compact(s).replace(/,/g, '');
@@ -147,8 +150,9 @@ async function main() {
   }
   const sheets = google.sheets({version:'v4',auth:new google.auth.GoogleAuth({credentials:JSON.parse(required('GOOGLE_SERVICE_ACCOUNT_JSON')),scopes:['https://www.googleapis.com/auth/spreadsheets']})});
   const spreadsheetId = required('SPREADSHEET_ID');
-  const header = (await sheets.spreadsheets.values.get({spreadsheetId,range:`${SHEET}!A1:L1`})).data.values?.[0];
-  if (!header || HEADERS.some((h,i)=>h !== header[i])) throw new Error('シート8の見出しが一致しません。');
+  // A:L positions are fixed by agreement; display labels may be renamed.
+  const metadata = await sheets.spreadsheets.get({spreadsheetId,fields:'sheets(properties(sheetId,title,gridProperties(columnCount)))'});
+  validateSnapshotDestination(metadata.data.sheets);
   const timestamps = (await sheets.spreadsheets.values.get({spreadsheetId,range:`${SHEET}!A2:A`})).data.values ?? [];
   if (timestamps.slice(-100).some(r => slot(String(r[0])) === slot(timestamp))) { console.log('SKIPPED: snapshot for this 5-minute slot exists'); return; }
   const client = wrapper(axios.create({jar:new CookieJar(),timeout:45000,headers:{'User-Agent':'Mozilla/5.0','Accept-Language':'ja-JP,ja;q=0.9'}}));

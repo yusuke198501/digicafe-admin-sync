@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { clickWindows, parseClickCount, fetchClickCount } from './cats-clicks.js';
 import { metricOrZero } from './sync-sheet8.js';
+import { validateSnapshotDestination } from './sync-sheet8.js';
 import { parseInteractions, parsePayers, parseMembers, memberQuery, slot, jstTimestamp, collectionWindowValid, maleReceiveUrl, parseMaleReceive } from './sync-sheet8.js';
 const hours = Array.from({length:24},(_,i)=>`<tr><td>${i}時</td><td>${i===0?312:0}</td><td>${i===0?335:0}</td><td>0</td><td>0</td><td>8</td><td>${i===0?1009:0}</td><td>${i===0?82:0}</td></tr>`).join('');
 const mail = `<h3>UF_MKT系データ(ログインアカウント別/時間毎)</h3><div><table><tr><th></th><th colspan="7">全体</th></tr><tr><th>やり取り送信</th><th>やり取り受信</th><th>個別送信</th><th>個別受信</th><th>同報配信キャラ数</th><th>同報配信</th><th>同報受信</th></tr>${hours}<tr><td>合計</td><td>312</td><td>335</td><td>0</td><td>0</td><td>8</td><td>1009</td><td>82</td></tr></table></div>`;
@@ -76,4 +77,8 @@ test('every failed metric group has numeric zero fallback, no secret leakage',as
 test('successful zero and valid values remain unchanged; malformed values become zero',async()=>{
   assert.deepEqual(await metricOrZero('test',2,async()=>[0,42]),[0,42]);
   for (const values of [[undefined],[NaN],[-1],[],['12']]) assert.deepEqual(await metricOrZero('test',1,async()=>values,()=>{}),[0]);
+});
+test('column-based destination ignores renamed labels, preserves sheet identity check',()=>{
+  assert.doesNotThrow(()=>validateSnapshotDestination([{properties:{sheetId:1467610996,title:'シート8',gridProperties:{columnCount:26}}}]));
+  for (const properties of [{sheetId:0,title:'シート8',gridProperties:{columnCount:26}},{sheetId:1467610996,title:'別シート',gridProperties:{columnCount:26}},{sheetId:1467610996,title:'シート8',gridProperties:{columnCount:11}}]) assert.throws(()=>validateSnapshotDestination([{properties}]));
 });
