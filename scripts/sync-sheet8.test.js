@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { clickWindows, parseClickCount, fetchClickCount } from './cats-clicks.js';
 import { metricOrZero } from './sync-sheet8.js';
 import { validateSnapshotDestination } from './sync-sheet8.js';
+import { carryForwardZeros } from './sync-sheet8.js';
 import { parseInteractions, parsePayers, parseMembers, memberQuery, slot, jstTimestamp, collectionWindowValid, maleReceiveUrl, parseMaleReceive } from './sync-sheet8.js';
 const hours = Array.from({length:24},(_,i)=>`<tr><td>${i}時</td><td>${i===0?312:0}</td><td>${i===0?335:0}</td><td>0</td><td>0</td><td>8</td><td>${i===0?1009:0}</td><td>${i===0?82:0}</td></tr>`).join('');
 const mail = `<h3>UF_MKT系データ(ログインアカウント別/時間毎)</h3><div><table><tr><th></th><th colspan="7">全体</th></tr><tr><th>やり取り送信</th><th>やり取り受信</th><th>個別送信</th><th>個別受信</th><th>同報配信キャラ数</th><th>同報配信</th><th>同報受信</th></tr>${hours}<tr><td>合計</td><td>312</td><td>335</td><td>0</td><td>0</td><td>8</td><td>1009</td><td>82</td></tr></table></div>`;
@@ -81,4 +82,17 @@ test('successful zero and valid values remain unchanged; malformed values become
 test('column-based destination ignores renamed labels, preserves sheet identity check',()=>{
   assert.doesNotThrow(()=>validateSnapshotDestination([{properties:{sheetId:1467610996,title:'シート8',gridProperties:{columnCount:26}}}]));
   for (const properties of [{sheetId:0,title:'シート8',gridProperties:{columnCount:26}},{sheetId:1467610996,title:'別シート',gridProperties:{columnCount:26}},{sheetId:1467610996,title:'シート8',gridProperties:{columnCount:11}}]) assert.throws(()=>validateSnapshotDestination([{properties}]));
+});
+test('zero metrics copy same-day previous values column by column without replacing nonzero values',()=>{
+  const row=['2026-10-19 10:05:00',0,12,0,0],previous=['2026-10-19 10:00:00',8,20,0,55],warnings=[];
+  assert.deepEqual(carryForwardZeros(row,previous,m=>warnings.push(m)),[row[0],8,12,0,55]);
+  assert.equal(row[1],0);assert.equal(warnings.length,1);
+});
+test('carry forward never copies yesterday or future snapshots',()=>{
+  const row=['2026-10-19 00:00:10',0,0];
+  for (const previous of [undefined,['2026-10-18 23:55:00',100,90],['2026-10-19 00:05:00',100,90],['日時',100,90]]) assert.deepEqual(carryForwardZeros(row,previous),row);
+});
+test('missing and invalid previous values remain zero and all B:L columns are covered',()=>{
+  assert.deepEqual(carryForwardZeros(['2026-10-19 10:05:00',0,0,0],['2026-10-19 10:00:00','5',null,-1]),['2026-10-19 10:05:00',0,0,0]);
+  assert.deepEqual(carryForwardZeros(['2026-10-19 10:05:00',...Array(11).fill(0)],['2026-10-19 10:00:00',...Array(11).fill(9)],()=>{}),['2026-10-19 10:05:00',...Array(11).fill(9)]);
 });

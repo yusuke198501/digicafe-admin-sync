@@ -134,9 +134,22 @@ export async function metricOrZero(label, width, collect, warn = message => cons
     return values;
   } catch {
     // Never print raw network errors: request configs may contain credentials.
-    warn(`WARNING: ${label} の取得に失敗したため ${width}項目を0で記録します。`);
+    warn(`WARNING: ${label} の取得に失敗。${width}項目を0扱いとし、同日直前の記録値があれば補完します。`);
     return Array(width).fill(0);
   }
+}
+export function carryForwardZeros(row, previous, warn = message => console.warn(message)) {
+  const result = [...row];
+  if (!previous || !slot(String(previous[0])) || String(previous[0]).slice(0,10) !== String(row[0]).slice(0,10) || String(previous[0]) >= String(row[0])) return result;
+  const copied = [];
+  for (let i=1;i<result.length;i++) {
+    if (result[i] === 0 && Number.isSafeInteger(previous[i]) && previous[i] >= 0) {
+      result[i] = previous[i];
+      if (previous[i] > 0) copied.push(String.fromCharCode(65+i));
+    }
+  }
+  if (copied.length) warn(`WARNING: 取得値0のため同日直前 ${previous[0]} の値を補完: ${copied.join(',')}列`);
+  return result;
 }
 async function main() {
   const start = new Date(), timestamp = jstTimestamp(start), date = timestamp.slice(0,10);
@@ -155,6 +168,15 @@ async function main() {
   validateSnapshotDestination(metadata.data.sheets);
   const timestamps = (await sheets.spreadsheets.values.get({spreadsheetId,range:`${SHEET}!A2:A`})).data.values ?? [];
   if (timestamps.slice(-100).some(r => slot(String(r[0])) === slot(timestamp))) { console.log('SKIPPED: snapshot for this 5-minute slot exists'); return; }
+  let previous;
+  for (let i=timestamps.length-1;i>=0;i--) {
+    const candidate = String(timestamps[i][0]);
+    if (!slot(candidate) || candidate >= timestamp) continue;
+    if (candidate.slice(0,10) === date) {
+      previous = (await sheets.spreadsheets.values.get({spreadsheetId,range:`${SHEET}!A${i+2}:L${i+2}`,valueRenderOption:'UNFORMATTED_VALUE'})).data.values?.[0];
+    }
+    break;
+  }
   const client = wrapper(axios.create({jar:new CookieJar(),timeout:45000,headers:{'User-Agent':'Mozilla/5.0','Accept-Language':'ja-JP,ja;q=0.9'}}));
   // Do not log axios errors/configs: they can contain login credentials.
   async function get(url) {
@@ -170,7 +192,7 @@ async function main() {
     const login = await client.post(BASE,new URLSearchParams({mode:'login',account:required('LOG_ACCOUNT'),pass:required('LOG_PASSWORD')}));
     if (!String(login.data).includes('ログアウト')) throw new Error();
     loggedIn = true;
-  } catch { console.warn('WARNING: 管理画面へのログインに失敗。該当項目は0で記録し、独立した取得は続行します。'); }
+  } catch { console.warn('WARNING: 管理画面へのログインに失敗。該当項目は同日直前値で補完し、独立した取得は続行します。'); }
   async function partnerGet(url) {
     if (!loggedIn) throw new Error('管理画面が未認証です。');
     return get(url);
@@ -203,7 +225,7 @@ async function main() {
     metricOrZero('L 広告クリック数',1,async()=>[await fetchClickCount(timestamp,process.env.CATS_API_TOKEN)])
   ]);
   if (!collectionWindowValid(start,new Date())) throw new Error('取得が4分以上経過、または日付が変わりました。追記しません。');
-  const row = [timestamp,sent,received,senders,logins,payers,amount,broadcastSent,broadcastReceived,maleReceived,maleReceivers,clicks];
+  const row = carryForwardZeros([timestamp,sent,received,senders,logins,payers,amount,broadcastSent,broadcastReceived,maleReceived,maleReceivers,clicks],previous);
   const result = await sheets.spreadsheets.values.append({spreadsheetId,range:`${SHEET}!A:L`,valueInputOption:'RAW',insertDataOption:'INSERT_ROWS',requestBody:{values:[row]}});
   const range = result.data.updates?.updatedRange;
   if (!range) throw new Error('追記結果の範囲がありません。');
