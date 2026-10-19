@@ -10,7 +10,7 @@ const BASE = 'https://log.digicafe.jp/partner/';
 const SHEET = "'シート8'";
 export function validateSnapshotDestination(sheets) {
   const sheet = sheets?.find(s => s.properties?.sheetId === 1467610996)?.properties;
-  if (!sheet || sheet.title !== 'シート8' || sheet.gridProperties?.columnCount < 12) throw new Error('シート8の書き込み先を確認できません。');
+  if (!sheet || sheet.title !== 'シート8' || sheet.gridProperties?.columnCount < 16) throw new Error('シート8の書き込み先を確認できません。');
 }
 const compact = (s) => String(s ?? '').replace(/\s/g, '');
 function number(s) {
@@ -127,6 +127,28 @@ export function memberQuery(html, date, type) {
   return q;
 }
 function required(name) { if (!process.env[name]) throw new Error(`${name} is missing`); return process.env[name]; }
+export function cohortMailUrl(date, previousMonth = false) {
+  const day = new Date(`${date}T00:00:00Z`);
+  if (!Number.isFinite(day.getTime()) || day.toISOString().slice(0,10) !== date) throw new Error('集計日が不正です。');
+  const monthStart = new Date(Date.UTC(day.getUTCFullYear(),day.getUTCMonth(),1));
+  const priorStart = new Date(Date.UTC(day.getUTCFullYear(),day.getUTCMonth()-1,1));
+  const priorEnd = new Date(monthStart.getTime()-86400000);
+  const url = new URL('mailnum_uf',BASE);
+  url.search = new URLSearchParams({sex:'0',sort:'times',mail_start:date,mail_end:date,code:'',frm:'',created_at_start:(previousMonth?priorStart:monthStart).toISOString().slice(0,10),created_at_end:previousMonth?priorEnd.toISOString().slice(0,10):date,is_create:'1',disp_type:'',folder_rcv_source:'point',sum:'集計'});
+  return url.href;
+}
+export function parseCohortMail(html) {
+  const $ = cheerio.load(html);
+  const tables = $('table').toArray().filter(t=>compact($(t).find('tr').first().text()) === '全体送信データ');
+  if (tables.length !== 1) throw new Error('全体送信データの表が一意ではありません。');
+  const rows=$(tables[0]).find('tr').toArray().map(r=>$(r).children('th,td').toArray().map(c=>compact($(c).text())));
+  const index=rows.findIndex(r=>r.includes('メール総数')&&r.includes('メール人数'));
+  if(index<0 || !rows[index+1]) throw new Error('全体送信データの集計行がありません。');
+  return ['メール人数','メール総数'].map(label=>{
+    const col=rows[index].indexOf(label);
+    return number(rows[index+1][col].replace(/(?:人|通)$/,''));
+  });
+}
 export async function metricOrZero(label, width, collect, warn = message => console.warn(message)) {
   try {
     const values = await collect();
@@ -163,7 +185,7 @@ async function main() {
   }
   const sheets = google.sheets({version:'v4',auth:new google.auth.GoogleAuth({credentials:JSON.parse(required('GOOGLE_SERVICE_ACCOUNT_JSON')),scopes:['https://www.googleapis.com/auth/spreadsheets']})});
   const spreadsheetId = required('SPREADSHEET_ID');
-  // A:L positions are fixed by agreement; display labels may be renamed.
+  // A:P positions are fixed by agreement; display labels may be renamed.
   const metadata = await sheets.spreadsheets.get({spreadsheetId,fields:'sheets(properties(sheetId,title,gridProperties(columnCount)))'});
   validateSnapshotDestination(metadata.data.sheets);
   const timestamps = (await sheets.spreadsheets.values.get({spreadsheetId,range:`${SHEET}!A2:A`})).data.values ?? [];
@@ -173,7 +195,7 @@ async function main() {
     const candidate = String(timestamps[i][0]);
     if (!slot(candidate) || candidate >= timestamp) continue;
     if (candidate.slice(0,10) === date) {
-      previous = (await sheets.spreadsheets.values.get({spreadsheetId,range:`${SHEET}!A${i+2}:L${i+2}`,valueRenderOption:'UNFORMATTED_VALUE'})).data.values?.[0];
+      previous = (await sheets.spreadsheets.values.get({spreadsheetId,range:`${SHEET}!A${i+2}:P${i+2}`,valueRenderOption:'UNFORMATTED_VALUE'})).data.values?.[0];
     }
     break;
   }
@@ -213,7 +235,7 @@ async function main() {
   ptUrl.search = new URLSearchParams({action_start:date,action_end:date,created_at_start:date,created_at_end:date,sum:'集計'});
   // This endpoint has no partner navigation/logout link; validate its actual
   // form conditions and summary table instead. Never send credentials to it.
-  const [[sent,received,broadcastSent,broadcastReceived],[senders],[logins],[payers,amount],[maleReceived,maleReceivers],[clicks]] = await Promise.all([
+  const [[sent,received,broadcastSent,broadcastReceived],[senders],[logins],[payers,amount],[maleReceived,maleReceivers],[clicks],[currentDau,currentReceived],[priorDau,priorReceived]] = await Promise.all([
     metricOrZero('B/C/H/I 送受信・同報',4,async()=>parseInteractions(await partnerGet(mailUrl.href))),
     metricOrZero('D 送信ユーザー数',1,()=>memberCount('message_sent')),
     metricOrZero('E ログイン数',1,()=>memberCount('login')),
@@ -222,11 +244,13 @@ async function main() {
       const response = await axios.get(maleReceiveUrl(date),{timeout:45000,headers:{'User-Agent':'Mozilla/5.0'}});
       return parseMaleReceive(response.data,date);
     }),
-    metricOrZero('L 広告クリック数',1,async()=>[await fetchClickCount(timestamp,process.env.CATS_API_TOKEN)])
+    metricOrZero('L 広告クリック数',1,async()=>[await fetchClickCount(timestamp,process.env.CATS_API_TOKEN)]),
+    metricOrZero('M/N 当月DAU・受信数',2,async()=>parseCohortMail(await partnerGet(cohortMailUrl(date)))),
+    metricOrZero('O/P 2ヶ月目DAU・受信数',2,async()=>parseCohortMail(await partnerGet(cohortMailUrl(date,true))))
   ]);
   if (!collectionWindowValid(start,new Date())) throw new Error('取得が4分以上経過、または日付が変わりました。追記しません。');
-  const row = carryForwardZeros([timestamp,sent,received,senders,logins,payers,amount,broadcastSent,broadcastReceived,maleReceived,maleReceivers,clicks],previous);
-  const result = await sheets.spreadsheets.values.append({spreadsheetId,range:`${SHEET}!A:L`,valueInputOption:'RAW',insertDataOption:'INSERT_ROWS',requestBody:{values:[row]}});
+  const row = carryForwardZeros([timestamp,sent,received,senders,logins,payers,amount,broadcastSent,broadcastReceived,maleReceived,maleReceivers,clicks,currentDau,currentReceived,priorDau,priorReceived],previous);
+  const result = await sheets.spreadsheets.values.append({spreadsheetId,range:`${SHEET}!A:P`,valueInputOption:'RAW',insertDataOption:'INSERT_ROWS',requestBody:{values:[row]}});
   const range = result.data.updates?.updatedRange;
   if (!range) throw new Error('追記結果の範囲がありません。');
   const read = (await sheets.spreadsheets.values.get({spreadsheetId,range,valueRenderOption:'UNFORMATTED_VALUE'})).data.values;

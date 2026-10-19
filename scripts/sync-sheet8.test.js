@@ -4,6 +4,7 @@ import { clickWindows, parseClickCount, fetchClickCount } from './cats-clicks.js
 import { metricOrZero } from './sync-sheet8.js';
 import { validateSnapshotDestination } from './sync-sheet8.js';
 import { carryForwardZeros } from './sync-sheet8.js';
+import { cohortMailUrl, parseCohortMail } from './sync-sheet8.js';
 import { parseInteractions, parsePayers, parseMembers, memberQuery, slot, jstTimestamp, collectionWindowValid, maleReceiveUrl, parseMaleReceive } from './sync-sheet8.js';
 const hours = Array.from({length:24},(_,i)=>`<tr><td>${i}時</td><td>${i===0?312:0}</td><td>${i===0?335:0}</td><td>0</td><td>0</td><td>8</td><td>${i===0?1009:0}</td><td>${i===0?82:0}</td></tr>`).join('');
 const mail = `<h3>UF_MKT系データ(ログインアカウント別/時間毎)</h3><div><table><tr><th></th><th colspan="7">全体</th></tr><tr><th>やり取り送信</th><th>やり取り受信</th><th>個別送信</th><th>個別受信</th><th>同報配信キャラ数</th><th>同報配信</th><th>同報受信</th></tr>${hours}<tr><td>合計</td><td>312</td><td>335</td><td>0</td><td>0</td><td>8</td><td>1009</td><td>82</td></tr></table></div>`;
@@ -95,4 +96,21 @@ test('carry forward never copies yesterday or future snapshots',()=>{
 test('missing and invalid previous values remain zero and all B:L columns are covered',()=>{
   assert.deepEqual(carryForwardZeros(['2026-10-19 10:05:00',0,0,0],['2026-10-19 10:00:00','5',null,-1]),['2026-10-19 10:05:00',0,0,0]);
   assert.deepEqual(carryForwardZeros(['2026-10-19 10:05:00',...Array(11).fill(0)],['2026-10-19 10:00:00',...Array(11).fill(9)],()=>{}),['2026-10-19 10:05:00',...Array(11).fill(9)]);
+});
+test('cohort mail separates current month from previous month, including January rollover',()=>{
+  for (const [date,prior,start,end] of [['2026-10-19',false,'2026-10-01','2026-10-19'],['2026-10-19',true,'2026-09-01','2026-09-30'],['2027-01-02',true,'2026-12-01','2026-12-31']]) {
+    const u=new URL(cohortMailUrl(date,prior));
+    assert.equal(u.pathname,'/partner/mailnum_uf');
+    for(const [key,value] of Object.entries({sex:'0',is_create:'1',mail_start:date,mail_end:date,created_at_start:start,created_at_end:end})) assert.equal(u.searchParams.get(key),value);
+  }
+});
+test('cohort mail uses whole SEND table and returns users then total, not received table or UF',()=>{
+  const html='<table><tr><th>全体受信データ</th></tr><tr><th>メール総数</th><th>メール人数</th></tr><tr><td>999</td><td>888</td></tr></table><table><tr><th colspan="3">全体送信データ</th></tr><tr><th>メール総数</th><th>メール人数</th><th>平均</th></tr><tr><td>1,234 通</td><td>56 人</td><td>22</td></tr></table>';
+  assert.deepEqual(parseCohortMail(html),[56,1234]);
+  assert.throws(()=>parseCohortMail(''));
+  assert.throws(()=>parseCohortMail(html.replace('56 人','-')));
+});
+test('carry forward also covers M:P without previous day leakage',()=>{
+  const row=['2026-10-19 11:05:00',...Array(15).fill(0)],previous=['2026-10-19 11:00:00',...Array(15).fill(2)];
+  assert.deepEqual(carryForwardZeros(row,previous,()=>{}).slice(12),[2,2,2,2]);
 });
