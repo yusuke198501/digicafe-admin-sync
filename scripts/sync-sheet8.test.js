@@ -5,6 +5,7 @@ import { metricOrZero } from './sync-sheet8.js';
 import { validateSnapshotDestination } from './sync-sheet8.js';
 import { carryForwardZeros } from './sync-sheet8.js';
 import { cohortMailUrl, parseCohortMail } from './sync-sheet8.js';
+import { registrationUrl, parseRegistrations } from './sync-sheet8.js';
 import { parseInteractions, parsePayers, parseMembers, memberQuery, slot, jstTimestamp, collectionWindowValid, maleReceiveUrl, parseMaleReceive } from './sync-sheet8.js';
 const hours = Array.from({length:24},(_,i)=>`<tr><td>${i}時</td><td>${i===0?312:0}</td><td>${i===0?335:0}</td><td>0</td><td>0</td><td>8</td><td>${i===0?1009:0}</td><td>${i===0?82:0}</td></tr>`).join('');
 const mail = `<h3>UF_MKT系データ(ログインアカウント別/時間毎)</h3><div><table><tr><th></th><th colspan="7">全体</th></tr><tr><th>やり取り送信</th><th>やり取り受信</th><th>個別送信</th><th>個別受信</th><th>同報配信キャラ数</th><th>同報配信</th><th>同報受信</th></tr>${hours}<tr><td>合計</td><td>312</td><td>335</td><td>0</td><td>0</td><td>8</td><td>1009</td><td>82</td></tr></table></div>`;
@@ -113,4 +114,15 @@ test('cohort mail uses whole SEND table and returns users then total, not receiv
 test('carry forward also covers M:P without previous day leakage',()=>{
   const row=['2026-10-19 11:05:00',...Array(15).fill(0)],previous=['2026-10-19 11:00:00',...Array(15).fill(2)];
   assert.deepEqual(carryForwardZeros(row,previous,()=>{}).slice(12),[2,2,2,2]);
+});
+test('registration source matches distribution X column: selected-day male kaidan registrations',()=>{
+  const q=new URL(registrationUrl('2026-10-19')).searchParams;
+  for(const [k,v] of Object.entries({category:'1',sex:'0',registed_at_start:'2026-10-19',registed_at_end:'2026-10-19',term:'d'})) assert.equal(q.get(k),v);
+  const html='<table><tr><th>日付</th><th>男性登録数</th><th>男性年認完了数</th></tr><tr><td>2026/10/19</td><td>123</td><td>45</td></tr></table>';
+  assert.equal(parseRegistrations(html,'2026-10-19'),123);
+});
+test('carry forward retains inserted M registration and shifted N:Q cohort columns',()=>{
+  const old=['2026-10-19 15:00:00',...Array(11).fill(1),123,88,241,42,107];
+  assert.deepEqual(carryForwardZeros(['2026-10-19 15:05:00',...Array(16).fill(0)],old,()=>{}).slice(12),[123,88,241,42,107]);
+  assert.throws(()=>validateSnapshotDestination([{properties:{sheetId:1467610996,title:'シート8',gridProperties:{columnCount:16}}}]));
 });
