@@ -6,12 +6,13 @@ import { google } from 'googleapis';
 import { pathToFileURL } from 'node:url';
 import { fetchClickCount } from './cats-clicks.js';
 import { parseKaidanMetrics } from './kaidan-report.js';
+import { parsePaidMaleAllUsagePt } from './gross-sales-report.js';
 
 const BASE = 'https://log.digicafe.jp/partner/';
 const SHEET = "'シート8'";
 export function validateSnapshotDestination(sheets) {
   const sheet = sheets?.find(s => s.properties?.sheetId === 1467610996)?.properties;
-  if (!sheet || sheet.title !== 'シート8' || sheet.gridProperties?.columnCount < 21) throw new Error('シート8の書き込み先を確認できません。');
+  if (!sheet || sheet.title !== 'シート8' || sheet.gridProperties?.columnCount < 22) throw new Error('シート8の書き込み先を確認できません。');
 }
 const compact = (s) => String(s ?? '').replace(/\s/g, '');
 function number(s) {
@@ -193,7 +194,7 @@ export function parseCohortSales(html, date, previousMonth = false) {
   return totals[0]; // [課金者人数, 課金額]。期間は当日、登録月だけを絞る。
 }
 export function buildSnapshotRow(v) {
-  return [v.timestamp,v.sent,v.received,v.senders,v.logins,v.payers,v.amount,v.broadcastSent,v.broadcastReceived,v.maleReceived,v.maleReceivers,v.clicks,v.registrations,v.currentDau,v.currentReceived,v.currentCohortPayers,v.currentCohortAmount,v.priorDau,v.priorReceived,v.priorCohortPayers,v.priorCohortAmount];
+  return [v.timestamp,v.sent,v.received,v.senders,v.logins,v.payers,v.amount,v.broadcastSent,v.broadcastReceived,v.maleReceived,v.maleReceivers,v.clicks,v.registrations,v.currentDau,v.currentReceived,v.currentCohortPayers,v.currentCohortAmount,v.priorDau,v.priorReceived,v.priorCohortPayers,v.priorCohortAmount,v.allUsagePt];
 }
 export async function metricOrZero(label, width, collect, warn = message => console.warn(message)) {
   try {
@@ -231,7 +232,7 @@ async function main() {
   }
   const sheets = google.sheets({version:'v4',auth:new google.auth.GoogleAuth({credentials:JSON.parse(required('GOOGLE_SERVICE_ACCOUNT_JSON')),scopes:['https://www.googleapis.com/auth/spreadsheets']})});
   const spreadsheetId = required('SPREADSHEET_ID');
-  // A:U positions are fixed by agreement; display labels may be renamed.
+  // A:V positions are fixed by agreement; display labels may be renamed.
   const metadata = await sheets.spreadsheets.get({spreadsheetId,fields:'sheets(properties(sheetId,title,gridProperties(columnCount)))'});
   validateSnapshotDestination(metadata.data.sheets);
   const timestamps = (await sheets.spreadsheets.values.get({spreadsheetId,range:`${SHEET}!A2:A`})).data.values ?? [];
@@ -241,7 +242,7 @@ async function main() {
     const candidate = String(timestamps[i][0]);
     if (!slot(candidate) || candidate >= timestamp) continue;
     if (candidate.slice(0,10) === date) {
-      previous = (await sheets.spreadsheets.values.get({spreadsheetId,range:`${SHEET}!A${i+2}:U${i+2}`,valueRenderOption:'UNFORMATTED_VALUE'})).data.values?.[0];
+      previous = (await sheets.spreadsheets.values.get({spreadsheetId,range:`${SHEET}!A${i+2}:V${i+2}`,valueRenderOption:'UNFORMATTED_VALUE'})).data.values?.[0];
     }
     break;
   }
@@ -279,13 +280,15 @@ async function main() {
   }
   const ptUrl = new URL('status/pt',BASE);
   ptUrl.search = new URLSearchParams({action_start:date,action_end:date,created_at_start:date,created_at_end:date,sum:'集計'});
+  const ptHtml = partnerGet(ptUrl.href).catch(()=>null);
+  const [allUsagePt] = await metricOrZero('V 有料男性全利用Pt',1,async()=>[parsePaidMaleAllUsagePt(await ptHtml,{iso:date})]);
   // This endpoint has no partner navigation/logout link; validate its actual
   // form conditions and summary table instead. Never send credentials to it.
   const [[sent,received,broadcastSent,broadcastReceived],[senders],[logins],[payers,amount],[maleReceived,maleReceivers],[clicks],[registrations],[currentDau,currentReceived],[priorDau,priorReceived],[currentCohortPayers,currentCohortAmount],[priorCohortPayers,priorCohortAmount]] = await Promise.all([
     metricOrZero('B/C/H/I 送受信・同報',4,async()=>parseInteractions(await partnerGet(mailUrl.href))),
     metricOrZero('D 送信ユーザー数',1,()=>memberCount('message_sent')),
     metricOrZero('E ログイン数',1,()=>memberCount('login')),
-    metricOrZero('F/G 入金者数・入金額',2,async()=>parsePayers(await partnerGet(ptUrl.href),date)),
+    metricOrZero('F/G 入金者数・入金額',2,async()=>parsePayers(await ptHtml,date)),
     metricOrZero('J/K 男性メール受信数・人数',2,async()=>{
       const response = await axios.get(maleReceiveUrl(date),{timeout:45000,headers:{'User-Agent':'Mozilla/5.0'}});
       return parseMaleReceive(response.data,date);
@@ -301,8 +304,8 @@ async function main() {
     }))
   ]);
   if (!collectionWindowValid(start,new Date())) throw new Error('取得が4分以上経過、または日付が変わりました。追記しません。');
-  const row = carryForwardZeros(buildSnapshotRow({timestamp,sent,received,senders,logins,payers,amount,broadcastSent,broadcastReceived,maleReceived,maleReceivers,clicks,registrations,currentDau,currentReceived,currentCohortPayers,currentCohortAmount,priorDau,priorReceived,priorCohortPayers,priorCohortAmount}),previous);
-  const result = await sheets.spreadsheets.values.append({spreadsheetId,range:`${SHEET}!A:U`,valueInputOption:'RAW',insertDataOption:'INSERT_ROWS',requestBody:{values:[row]}});
+  const row = carryForwardZeros(buildSnapshotRow({timestamp,sent,received,senders,logins,payers,amount,broadcastSent,broadcastReceived,maleReceived,maleReceivers,clicks,registrations,currentDau,currentReceived,currentCohortPayers,currentCohortAmount,priorDau,priorReceived,priorCohortPayers,priorCohortAmount,allUsagePt}),previous);
+  const result = await sheets.spreadsheets.values.append({spreadsheetId,range:`${SHEET}!A:V`,valueInputOption:'RAW',insertDataOption:'INSERT_ROWS',requestBody:{values:[row]}});
   const range = result.data.updates?.updatedRange;
   if (!range) throw new Error('追記結果の範囲がありません。');
   const read = (await sheets.spreadsheets.values.get({spreadsheetId,range,valueRenderOption:'UNFORMATTED_VALUE'})).data.values;
