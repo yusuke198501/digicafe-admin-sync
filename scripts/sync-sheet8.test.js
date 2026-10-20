@@ -6,6 +6,7 @@ import { validateSnapshotDestination } from './sync-sheet8.js';
 import { carryForwardZeros } from './sync-sheet8.js';
 import { cohortMailUrl, parseCohortMail } from './sync-sheet8.js';
 import { registrationUrl, parseRegistrations } from './sync-sheet8.js';
+import { cohortSalesUrl, parseCohortSales, buildSnapshotRow } from './sync-sheet8.js';
 import { parseInteractions, parsePayers, parseMembers, memberQuery, slot, jstTimestamp, collectionWindowValid, maleReceiveUrl, parseMaleReceive } from './sync-sheet8.js';
 const hours = Array.from({length:24},(_,i)=>`<tr><td>${i}時</td><td>${i===0?312:0}</td><td>${i===0?335:0}</td><td>0</td><td>0</td><td>8</td><td>${i===0?1009:0}</td><td>${i===0?82:0}</td></tr>`).join('');
 const mail = `<h3>UF_MKT系データ(ログインアカウント別/時間毎)</h3><div><table><tr><th></th><th colspan="7">全体</th></tr><tr><th>やり取り送信</th><th>やり取り受信</th><th>個別送信</th><th>個別受信</th><th>同報配信キャラ数</th><th>同報配信</th><th>同報受信</th></tr>${hours}<tr><td>合計</td><td>312</td><td>335</td><td>0</td><td>0</td><td>8</td><td>1009</td><td>82</td></tr></table></div>`;
@@ -125,4 +126,38 @@ test('carry forward retains inserted M registration and shifted N:Q cohort colum
   const old=['2026-10-19 15:00:00',...Array(11).fill(1),123,88,241,42,107];
   assert.deepEqual(carryForwardZeros(['2026-10-19 15:05:00',...Array(16).fill(0)],old,()=>{}).slice(12),[123,88,241,42,107]);
   assert.throws(()=>validateSnapshotDestination([{properties:{sheetId:1467610996,title:'シート8',gridProperties:{columnCount:16}}}]));
+});
+
+test('cohort sales uses selected-day totals, male registration cohort, and prior-month rollover',()=>{
+  for (const [date,prior,start,end] of [['2026-10-20',false,'2026-10-01','2026-10-20'],['2026-10-20',true,'2026-09-01','2026-09-30'],['2027-01-02',true,'2026-12-01','2026-12-31']]) {
+    const q=new URL(cohortSalesUrl(date,prior)).searchParams;
+    for(const [key,value] of Object.entries({start:date,end:date,reg_start:start,reg_end:end,sex:'0',reg_flg:'1'})) assert.equal(q.get(key),value);
+  }
+});
+function salesFixture(date='2026-10-20',prior=false) {
+  const q=new URL(cohortSalesUrl(date,prior)).searchParams;
+  return '<form>'+['start','end','reg_start','reg_end'].map(k=>`<input name="${k}" value="${q.get(k)}">`).join('')+'<input type="radio" name="sex" value="0" checked><input type="checkbox" name="reg_flg" value="1" checked></form><table><tr><th>区切り</th><th>区分1</th><th>区分2</th><th>合計</th></tr><tr><td>￥</td><td>10,000</td><td>20,000</td><td>30,000</td></tr><tr><td>人</td><td>2</td><td>3</td><td>5</td></tr></table>';
+}
+test('cohort sales returns payer count then amount, not daily or registration counts',()=>{
+  assert.deepEqual(parseCohortSales(salesFixture(),'2026-10-20'),[5,30000]);
+  assert.deepEqual(parseCohortSales(salesFixture('2026-10-20',true),'2026-10-20',true),[5,30000]);
+});
+test('cohort sales rejects wrong filters, missing totals and inconsistent data',()=>{
+  const html=salesFixture();
+  for(const bad of [html.replace('name="sex" value="0" checked','name="sex" value="1" checked'),html.replace('name="reg_flg" value="1" checked','name="reg_flg" value="1"'),html.replace('30,000','30,001'),html.replace('<td>5</td>','<td>-</td>'),html.replace('name="end" value="2026-10-20"','name="end" value="2026-10-21"'),'<html>ログイン</html>']) assert.throws(()=>parseCohortSales(bad,'2026-10-20'));
+});
+test('cohort sales accepts explicit zero totals and does not invent a missing table',()=>{
+  const html=salesFixture().replaceAll(/(?:10,000|20,000|30,000|<td>[235]<\/td>)/g,s=>s.startsWith('<')?'<td>0</td>':'0');
+  assert.deepEqual(parseCohortSales(html,'2026-10-20'),[0,0]);
+});
+test('21-column row places cohort sales in P/Q and T/U and prior mail in R/S',()=>{
+  const keys=['timestamp','sent','received','senders','logins','payers','amount','broadcastSent','broadcastReceived','maleReceived','maleReceivers','clicks','registrations','currentDau','currentReceived','currentCohortPayers','currentCohortAmount','priorDau','priorReceived','priorCohortPayers','priorCohortAmount'];
+  const data=Object.fromEntries(keys.map((key,i)=>[key,i]));
+  assert.deepEqual(buildSnapshotRow(data),Array.from({length:21},(_,i)=>i));
+  for (const n of [17,19,20]) assert.throws(()=>validateSnapshotDestination([{properties:{sheetId:1467610996,title:'シート8',gridProperties:{columnCount:n}}}]));
+  assert.doesNotThrow(()=>validateSnapshotDestination([{properties:{sheetId:1467610996,title:'シート8',gridProperties:{columnCount:21}}}]));
+});
+test('zero carry-forward uses all twenty updated columns without mixing R/S and P/Q',()=>{
+  const previous=['2026-10-20 14:00:00',...Array.from({length:20},(_,i)=>i+1)];
+  assert.deepEqual(carryForwardZeros(['2026-10-20 14:05:00',...Array(20).fill(0)],previous,()=>{}).slice(15),[15,16,17,18,19,20]);
 });
