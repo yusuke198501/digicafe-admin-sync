@@ -62,7 +62,9 @@ export async function fetchPaymentPoints(timestamp,username,password) {
   let stage='login-form';
   try {
   const client=wrapper(axios.create({jar:new CookieJar(),timeout:15000,headers:{'User-Agent':'Mozilla/5.0','Accept-Language':'ja-JP'}}));
-  const start=Date.now(),initial=await client.get(BASE),$=cheerio.load(initial.data),csrf=$('input[name="signin[_csrf_token]"]').attr('value');
+  // Symfony returns HTTP 401 for its normal sign-in form. Accept only this
+  // initial 401, then require the CSRF form and authenticated payment pages.
+  const start=Date.now(),initial=await client.get(BASE,{validateStatus:s=>s===200||s===401}),$=cheerio.load(initial.data),csrf=$('input[name="signin[_csrf_token]"]').attr('value');
   if(!csrf)throw new Error('Payment login form missing');
   stage='login-submit';
   await client.post(new URL('login',BASE).href,new URLSearchParams({'signin[username]':username,'signin[password]':password,'signin[remember]':'on','signin[_csrf_token]':csrf}),{maxRedirects:0,validateStatus:s=>[200,301,302,303].includes(s)});
