@@ -154,10 +154,12 @@ test('21-column row places cohort sales in P/Q and T/U and prior mail in R/S',()
   const keys=['timestamp','sent','received','senders','logins','payers','amount','broadcastSent','broadcastReceived','maleReceived','maleReceivers','clicks','registrations','currentDau','currentReceived','currentCohortPayers','currentCohortAmount','priorDau','priorReceived','priorCohortPayers','priorCohortAmount'];
   const data=Object.fromEntries(keys.map((key,i)=>[key,i]));
   data.allUsagePt=21;
-  assert.deepEqual(buildSnapshotRow(data),Array.from({length:22},(_,i)=>i));
+  data.paymentPoints=22;
+  assert.deepEqual(buildSnapshotRow(data),Array.from({length:23},(_,i)=>i));
   for (const n of [17,19,20]) assert.throws(()=>validateSnapshotDestination([{properties:{sheetId:1467610996,title:'シート8',gridProperties:{columnCount:n}}}]));
   assert.throws(()=>validateSnapshotDestination([{properties:{sheetId:1467610996,title:'シート8',gridProperties:{columnCount:21}}}]));
-  assert.doesNotThrow(()=>validateSnapshotDestination([{properties:{sheetId:1467610996,title:'シート8',gridProperties:{columnCount:22}}}]));
+  assert.throws(()=>validateSnapshotDestination([{properties:{sheetId:1467610996,title:'シート8',gridProperties:{columnCount:22}}}]));
+  assert.doesNotThrow(()=>validateSnapshotDestination([{properties:{sheetId:1467610996,title:'シート8',gridProperties:{columnCount:23}}}]));
 });
 test('zero carry-forward uses all twenty updated columns without mixing R/S and P/Q',()=>{
   const previous=['2026-10-20 14:00:00',...Array.from({length:20},(_,i)=>i+1)];
