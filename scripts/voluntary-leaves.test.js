@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { leaveUrl, parseVoluntaryLeaves, hourlyVoluntaryLeaves } from './voluntary-leaves.js';
+import { leaveUrl, parseVoluntaryLeaves, hourlyVoluntaryLeaves, leaveChartSeries } from './voluntary-leaves.js';
 
 const timestamp = '2026-10-21 15:00:00';
 function fixture(rows = [['1', '2026-10-21 14:00:00', '男', '自主'], ['2', '2026-10-21 12:00:00', '男', '強制']]) {
@@ -50,4 +50,13 @@ test('failed collection preserves same-day count, retries only next hour', async
   assert.equal(await hourlyVoluntaryLeaves(sheets,'id',timestamp,fail),19);
   assert.equal(await hourlyVoluntaryLeaves(sheets,'id','2026-10-21 15:05:00',fail),19);
   assert.equal(calls,1);
+});
+
+test('chart skips missing observations, keeps forecast dashed blue, and adds comparison/average when available', () => {
+  const series=leaveChartSeries([true,false,true,false]);
+  assert.deepEqual(series.map(s=>s.series.sourceRange.sources[0].startColumnIndex),[37,39]);
+  assert.equal(series[1].lineStyle.type,'MEDIUM_DASHED');
+  assert.deepEqual(series[1].color,series[0].color);
+  assert.equal(leaveChartSeries([true,true,true,true]).length,4);
+  assert.equal(leaveChartSeries([false,false,false,false]).length,0);
 });

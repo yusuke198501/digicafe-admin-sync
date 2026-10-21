@@ -66,6 +66,32 @@ export async function hourlyVoluntaryLeaves(sheets, spreadsheetId, timestamp, fe
   }
   if (!Number.isSafeInteger(count) || count < 0) throw new Error('自主退会数が不正です。');
   await sheets.spreadsheets.values.update({ spreadsheetId, range, valueInputOption: 'RAW', requestBody: { values: [[timestamp, count]] } });
+  // Sheets can remove an entirely empty comparison series. Restore it when
+  // historical data becomes available, without inventing zero observations.
+  try { await refreshLeaveChart(sheets, spreadsheetId); }
+  catch { console.warn('WARNING: 退会グラフの系列確認はできませんでした。数値取得は継続します。'); }
   console.log(JSON.stringify({ voluntaryLeaves: { timestamp, count, interval: 'hourly' } }));
   return count;
+}
+
+export function leaveChartSeries(available) {
+  const colors = [{ red: .25882354, green: .52156866, blue: .95686275 }, { red: .4, green: .4, blue: .4 },
+    { red: .25882354, green: .52156866, blue: .95686275 }, { red: .20392157, green: .65882355, blue: .3254902 }];
+  return available.flatMap((present, i) => present ? [{
+    series: { sourceRange: { sources: [{ sheetId: 174166888, startRowIndex: 1605, endRowIndex: 1654, startColumnIndex: 37 + i, endColumnIndex: 38 + i }] } },
+    targetAxis: 'LEFT_AXIS', color: colors[i], colorStyle: { rgbColor: colors[i] },
+    lineStyle: { width: i === 0 ? 4 : 2, type: i === 2 ? 'MEDIUM_DASHED' : 'SOLID' },
+    pointStyle: { size: i === 0 ? 3 : 0 }, dataLabel: { type: 'NONE' },
+  }] : []);
+}
+
+async function refreshLeaveChart(sheets, spreadsheetId) {
+  const rows = (await sheets.spreadsheets.values.get({ spreadsheetId, range: "'グラフ'!AL1607:AO1654", valueRenderOption: 'UNFORMATTED_VALUE' })).data.values ?? [];
+  const available = [0, 1, 2, 3].map((i) => rows.some((r) => typeof r[i] === 'number'));
+  if (!available[0]) return;
+  const metadata = (await sheets.spreadsheets.get({ spreadsheetId, fields: 'sheets(charts(chartId,spec))' })).data;
+  const chart = metadata.sheets?.flatMap((s) => s.charts ?? []).find((c) => c.spec?.title === '男性自主退会数の推移');
+  if (!chart) return;
+  chart.spec.basicChart.series = leaveChartSeries(available);
+  await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests: [{ updateChartSpec: { chartId: chart.chartId, spec: chart.spec } }] } });
 }
