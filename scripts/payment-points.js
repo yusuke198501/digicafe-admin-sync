@@ -59,9 +59,17 @@ export async function sumPaymentPages(getPage,date,timestamp) {
 }
 export async function fetchPaymentPoints(timestamp,username,password) {
   if(!username||!password)throw new Error('Payment credentials missing');
+  let stage='login-form';
+  try {
   const client=wrapper(axios.create({jar:new CookieJar(),timeout:15000,headers:{'User-Agent':'Mozilla/5.0','Accept-Language':'ja-JP'}}));
   const start=Date.now(),initial=await client.get(BASE),$=cheerio.load(initial.data),csrf=$('input[name="signin[_csrf_token]"]').attr('value');
   if(!csrf)throw new Error('Payment login form missing');
+  stage='login-submit';
   await client.post(new URL('login',BASE).href,new URLSearchParams({'signin[username]':username,'signin[password]':password,'signin[remember]':'on','signin[_csrf_token]':csrf}),{maxRedirects:0,validateStatus:s=>[200,301,302,303].includes(s)});
-  return sumPaymentPages(async page=>{if(Date.now()-start>75000)throw new Error('Payment collection timeout');return (await client.get(paymentUrl(timestamp.slice(0,10),page))).data;},timestamp.slice(0,10),timestamp);
+  stage='pagination';
+  return await sumPaymentPages(async page=>{stage=`page-${page}`;if(Date.now()-start>75000)throw new Error('Payment collection timeout');return (await client.get(paymentUrl(timestamp.slice(0,10),page))).data;},timestamp.slice(0,10),timestamp);
+  } catch(e) {
+    const own=/^(Payment (?:authentication failed|date filter mismatch|table missing|pagination mismatch|pagination limit|rows incomplete|count mismatch|login form missing|collection timeout)|Invalid payment row|Payment row outside date|Unexpected payment filter|Payments changed during pagination|Duplicate payment across pages)$/.test(e.message);
+    throw new Error(`Payment ${stage}: ${own?e.message:(e.response?.status?`HTTP ${Number(e.response.status)}`:'network request failed')}`);
+  }
 }

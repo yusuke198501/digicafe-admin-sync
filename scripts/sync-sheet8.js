@@ -223,6 +223,11 @@ export function carryForwardZeros(row, previous, warn = message => console.warn(
 }
 async function main() {
   const start = new Date(), timestamp = jstTimestamp(start), date = timestamp.slice(0,10);
+  if (process.env.PAYMENT_PROBE_ONLY === 'true') {
+    const points = await fetchPaymentPoints(timestamp,process.env.ADMIN_DIGICAFE_USERNAME,process.env.ADMIN_DIGICAFE_PASSWORD);
+    console.log(JSON.stringify({paymentProbe:{timestamp,points}}));
+    return;
+  }
   // Old queued dispatches must not manufacture historical snapshots.
   if (process.env.GITHUB_RUN_ID && process.env.GITHUB_TOKEN) {
     const r = await fetch(`https://api.github.com/repos/${required('GITHUB_REPOSITORY')}/actions/runs/${process.env.GITHUB_RUN_ID}`, {headers:{Authorization:`Bearer ${process.env.GITHUB_TOKEN}`}});

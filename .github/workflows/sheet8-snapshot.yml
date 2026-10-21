@@ -1,6 +1,11 @@
 name: シート8 5分集計
 on:
   workflow_dispatch:
+    inputs:
+      payment_probe:
+        description: 'Read-only payment point test (no spreadsheet writes)'
+        type: boolean
+        default: false
 permissions:
   contents: read
   actions: read
@@ -20,6 +25,7 @@ jobs:
       - run: node --test scripts/sync-sheet8.test.js scripts/payment-points.test.js
       - run: node scripts/sync-sheet8.js
         env:
+          PAYMENT_PROBE_ONLY: ${{ inputs.payment_probe }}
           GITHUB_TOKEN: ${{ github.token }}
           CATS_API_TOKEN: ${{ secrets.CATS_API_TOKEN }}
           LOG_ACCOUNT: ${{ secrets.LOG_ACCOUNT }}
