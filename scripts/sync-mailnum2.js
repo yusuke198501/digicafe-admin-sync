@@ -9,6 +9,7 @@ import { boxColumnsFromTableHeaders, parseDailyBoxDau, sendColumnsFromHeader, su
 import { cumulativeLoginAccountMetrics } from './login-account-hourly.js';
 import { buildWeeklySummaryWrites } from './weekly-summary.js';
 import { parseKaidanMetrics } from './kaidan-report.js';
+import { networkRetry } from './network-retry.js';
 
 const LOGIN_URL = 'https://log.digicafe.jp/partner/';
 const REPORT_URL = 'https://log.digicafe.jp/partner/mailnum_uf';
@@ -103,13 +104,14 @@ async function workflowDispatchCreatedAt() {
   const token = process.env.GITHUB_TOKEN;
   if (!runId || !repository || !token) return null;
 
-  const response = await fetch(`https://api.github.com/repos/${repository}/actions/runs/${runId}`, {
+  const response = await networkRetry('GitHub API: dispatch trigger time', () => fetch(`https://api.github.com/repos/${repository}/actions/runs/${runId}`, {
+    signal: AbortSignal.timeout(45000),
     headers: {
       Accept: 'application/vnd.github+json',
       Authorization: `Bearer ${token}`,
       'X-GitHub-Api-Version': '2022-11-28',
     },
-  });
+  }));
   if (!response.ok) throw new Error(`Could not read workflow dispatch time from GitHub (${response.status}).`);
   const run = await response.json();
   if (!run.created_at || Number(run.id) !== Number(runId)) {
@@ -372,11 +374,11 @@ async function fetchArchiveMetricsWithRetry(source) {
 }
 
 async function loginToReport() {
-  const client = wrapper(axios.create({ jar: new CookieJar(), maxRedirects: 5, validateStatus: () => true }));
-  await client.get(LOGIN_URL, { headers: REQUEST_HEADERS });
-  const response = await client.post(LOGIN_URL, new URLSearchParams({
+  const client = wrapper(axios.create({ jar: new CookieJar(), maxRedirects: 5, timeout: 45000, validateStatus: () => true }));
+  await networkRetry('log.digicafe.jp: login page', () => client.get(LOGIN_URL, { headers: REQUEST_HEADERS }));
+  const response = await networkRetry('log.digicafe.jp: login submission', () => client.post(LOGIN_URL, new URLSearchParams({
     mode: 'login', account: required('LOG_ACCOUNT'), pass: required('LOG_PASSWORD'),
-  }), { headers: { ...REQUEST_HEADERS, 'Content-Type': 'application/x-www-form-urlencoded' } });
+  }), { headers: { ...REQUEST_HEADERS, 'Content-Type': 'application/x-www-form-urlencoded' } }));
   if (response.status !== 200 || !String(response.data).includes('ログアウト')) {
     throw new Error('管理画面にログインできませんでした。LOG_ACCOUNT と LOG_PASSWORD を確認してください。');
   }
@@ -564,7 +566,7 @@ async function fetchReportMetrics(date, hour) {
     code: '', frm: '', created_at_start: date.iso, created_at_end: date.iso,
     disp_type: '', folder_rcv_source: 'point', sum: '集計',
   });
-  const response = await client.get(`${REPORT_URL}?${query}`, { headers: REQUEST_HEADERS });
+  const response = await networkRetry('log.digicafe.jp: mailnum_uf report', () => client.get(`${REPORT_URL}?${query}`, { headers: REQUEST_HEADERS }));
   if (response.status !== 200) throw new Error(`管理画面データの取得に失敗しました（HTTP ${response.status}）。`);
   const salesQuery = new URLSearchParams({
     action_start: date.iso, action_end: date.iso,
@@ -572,7 +574,7 @@ async function fetchReportMetrics(date, hour) {
     created_at_start: date.iso, created_at_end: date.iso,
     sum: '集計',
   });
-  const salesResponse = await client.get(`${GROSS_SALES_URL}?${salesQuery}`, { headers: REQUEST_HEADERS });
+  const salesResponse = await networkRetry('log.digicafe.jp: status/pt report', () => client.get(`${GROSS_SALES_URL}?${salesQuery}`, { headers: REQUEST_HEADERS }));
   if (salesResponse.status !== 200) {
     throw new Error(`グロス売上の取得に失敗しました（HTTP ${salesResponse.status}）。`);
   }
@@ -583,14 +585,14 @@ async function fetchReportMetrics(date, hour) {
       registed_at_start: date.iso, registed_at_end: date.iso,
       search: '', keywords: '', term: 'd', sum: '集計',
     });
-    const kaidanResponse = await client.get(`${KAIDAN_URL}?${kaidanQuery}`, { headers: REQUEST_HEADERS });
+    const kaidanResponse = await networkRetry('log.digicafe.jp: kaidan registrations', () => client.get(`${KAIDAN_URL}?${kaidanQuery}`, { headers: REQUEST_HEADERS }));
     if (kaidanResponse.status !== 200) throw new Error(`HTTP ${kaidanResponse.status}`);
     registrationMetrics = parseKaidanMetrics(kaidanResponse.data, date);
   } catch (error) {
     console.warn(`${date.label} 男性登録・年確数は今回は取得できませんでした: ${error.message}`);
   }
   return {
-    ...(await (async () => { const m = reportMetrics(response.data, date, hour); const start = new Date(Date.UTC(date.year, date.month - 2, 1)).toISOString().slice(0, 10); const q = new URLSearchParams({ sex: '0', sort: 'times', mail_start: date.iso, mail_end: date.iso, code: '', frm: '', created_at_start: start, created_at_end: date.iso, is_create: '1', disp_type: '', folder_rcv_source: 'point', sum: '集計' }); const r = await client.get(`${REPORT_URL}?${q}`, { headers: REQUEST_HEADERS }); if (r.status !== 200) throw new Error(`全体送信データ HTTP ${r.status}`); const p = cheerio.load(r.data); m.newMaleReceive = summaryReportMetric(p, '全体送信データ', ['メール総数']); m.newMaleDau = summaryReportMetric(p, '全体送信データ', ['メール人数']); return m; })()),
+    ...(await (async () => { const m = reportMetrics(response.data, date, hour); const start = new Date(Date.UTC(date.year, date.month - 2, 1)).toISOString().slice(0, 10); const q = new URLSearchParams({ sex: '0', sort: 'times', mail_start: date.iso, mail_end: date.iso, code: '', frm: '', created_at_start: start, created_at_end: date.iso, is_create: '1', disp_type: '', folder_rcv_source: 'point', sum: '集計' }); const r = await networkRetry('log.digicafe.jp: male cohort receive/DAU', () => client.get(`${REPORT_URL}?${q}`, { headers: REQUEST_HEADERS })); if (r.status !== 200) throw new Error(`全体送信データ HTTP ${r.status}`); const p = cheerio.load(r.data); m.newMaleReceive = summaryReportMetric(p, '全体送信データ', ['メール総数']); m.newMaleDau = summaryReportMetric(p, '全体送信データ', ['メール人数']); return m; })()),
     grossSales: parseGrossSales(salesResponse.data, date),
     paidMaleAllUsagePt: parsePaidMaleAllUsagePt(salesResponse.data, date),
     registrationMetrics,
@@ -605,7 +607,7 @@ async function fetchTodayResultStats(date) {
     code: '', frm: '', created_at_start: date.iso, created_at_end: date.iso,
     disp_type: '', folder_rcv_source: 'point', sum: '集計',
   });
-  const response = await client.get(`${REPORT_URL}?${query}`, { headers: REQUEST_HEADERS });
+  const response = await networkRetry('log.digicafe.jp: today results', () => client.get(`${REPORT_URL}?${query}`, { headers: REQUEST_HEADERS }));
   if (response.status !== 200) throw new Error(`管理画面データの取得に失敗しました（HTTP ${response.status}）。`);
   return loginAccountDailyStats(response.data, date);
 }
@@ -994,7 +996,9 @@ async function main() {
   if (!canRunForSlot('before fetch')) return;
   const metrics = await fetchReportMetrics(date, hour);
   if (!canRunForSlot('after fetch')) return;
-  const updatedSheets = await updateSheet(metrics, hour, date, canRunForSlot);
+  // Do not retry an entire multi-range update: a preceding write may have succeeded.
+  const updatedSheets = await networkRetry('Google Sheets: read/write report',
+    () => updateSheet(metrics, hour, date, canRunForSlot), { attempts: 1 });
   if (!updatedSheets) return;
   const destination = updatedSheets.map(({ sheetName, row, boxRow, individualRow, sendRow, todayResultCount }) => `${sheetName}: row ${row}, box row ${boxRow}, individual row ${individualRow}, send row ${sendRow}, today results ${todayResultCount}`).join('; ');
   console.log(`${date.label} ${hour}:00 -> ${destination}; all_receive=${metrics.receivemails}, uf_receive=${metrics.mktReceivemails}, individual_send=${metrics.individualSend}, individual_receive=${metrics.individualReceive}, gross_dau=${metrics.grossDau}, gross_sales=${metrics.grossSales}, paid_male_all_usage_pt=${metrics.paidMaleAllUsagePt}, male_registrations=${metrics.registrationMetrics?.registrations ?? 'unavailable'}, male_age_verifications=${metrics.registrationMetrics?.ageVerifications ?? 'unavailable'}, send_a=${metrics.boxASend}, send_b=${metrics.boxBSend}, send_c=${metrics.boxCSend}, send_e=${metrics.boxESend}, send_i=${metrics.boxISend}, send_j=${metrics.boxJSend}, send_m=${metrics.boxMSend}, send_q=${metrics.boxQSend}, send_total=${metrics.sendTotal}; source=${date.display}`);
