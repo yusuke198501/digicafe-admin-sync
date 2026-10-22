@@ -47,7 +47,7 @@ jobs:
 
       - run: npm install
 
-      - run: node --test scripts/network-retry.test.js scripts/report-slot-guard.test.js
+      - run: node --test scripts/network-retry.test.js scripts/report-slot-guard.test.js scripts/zero-on-missing.test.js
 
       - run: npm run sync-mailnum2
         env:

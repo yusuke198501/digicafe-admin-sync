@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { pathToFileURL } from 'node:url';
 import { wrapper } from 'axios-cookiejar-support';
 import { CookieJar } from 'tough-cookie';
 import * as cheerio from 'cheerio';
@@ -10,6 +11,7 @@ import { cumulativeLoginAccountMetrics } from './login-account-hourly.js';
 import { buildWeeklySummaryWrites } from './weekly-summary.js';
 import { parseKaidanMetrics } from './kaidan-report.js';
 import { networkRetry } from './network-retry.js';
+import { numberOrZero, valueOrDefault, requestOrNull } from './zero-on-missing.js';
 
 const LOGIN_URL = 'https://log.digicafe.jp/partner/';
 const REPORT_URL = 'https://log.digicafe.jp/partner/mailnum_uf';
@@ -524,38 +526,39 @@ function cumulativeLoginAccountStats(html, hour) {
   return cumulativeLoginAccountMetrics(rows, hour);
 }
 
-function reportMetrics(html, date, hour) {
+export function reportMetrics(html, date, hour) {
   const $ = cheerio.load(html);
-  const hourlyRows = reportRows($, reportTable($, 'UF_MKT系データ(フォルダ別/時間毎)'));
-  const boxDau = parseDailyBoxDau(
+  const hourlyRows = valueOrDefault('フォルダ別/時間毎', () => reportRows($, reportTable($, 'UF_MKT系データ(フォルダ別/時間毎)')), []);
+  const boxDau = valueOrDefault('フォルダ別DAU/日毎', () => parseDailyBoxDau(
     reportRows($, reportTable($, 'UF_MKT系データ(フォルダ別DAU/日毎)')),
     date.display,
-  );
-  const accountHourlyStats = cumulativeLoginAccountStats(html, hour);
+  ), { grossDau: 0, ...Object.fromEntries(['A','B','C','E','I','J','M','Q'].map(box => [`box${box}Dau`,0])) });
+  const accountHourlyStats = valueOrDefault('ログインアカウント別/時間毎', () => cumulativeLoginAccountStats(html, hour), { ufReceive:0, individualSend:0, individualReceive:0 });
+  const hourly = (header) => numberOrZero(header, () => cumulativeHourlyMetric(hourlyRows, header, hour));
   return {
-    receivemails: summaryReportMetric($, '全体受信データ', ['メール総数']),
+    receivemails: numberOrZero('全体受信', () => summaryReportMetric($, '全体受信データ', ['メール総数'])),
     ...boxDau,
     mktReceivemails: accountHourlyStats.ufReceive,
     individualSend: accountHourlyStats.individualSend,
     individualReceive: accountHourlyStats.individualReceive,
-    boxAReceivemails: cumulativeHourlyMetric(hourlyRows, 'A受信', hour),
-    boxBReceivemails: cumulativeHourlyMetric(hourlyRows, 'B受信', hour),
-    boxCReceivemails: cumulativeHourlyMetric(hourlyRows, 'C受信', hour),
-    boxEReceivemails: cumulativeHourlyMetric(hourlyRows, 'E受信', hour),
-    boxIReceivemails: cumulativeHourlyMetric(hourlyRows, 'I受信', hour),
-    boxJReceivemails: cumulativeHourlyMetric(hourlyRows, 'J受信', hour),
-    boxMReceivemails: cumulativeHourlyMetric(hourlyRows, 'M受信', hour),
-    boxQReceivemails: cumulativeHourlyMetric(hourlyRows, 'Q受信', hour),
-    sendTotal: cumulativeHourlyMetric(hourlyRows, 'やり取り送信', hour),
-    boxASend: cumulativeHourlyMetric(hourlyRows, 'Aやり取り', hour),
-    boxBSend: cumulativeHourlyMetric(hourlyRows, 'Bやり取り', hour),
-    boxCSend: cumulativeHourlyMetric(hourlyRows, 'Cやり取り', hour),
-    boxESend: cumulativeHourlyMetric(hourlyRows, 'Eやり取り', hour),
-    boxISend: cumulativeHourlyMetric(hourlyRows, 'Iやり取り', hour),
-    boxJSend: cumulativeHourlyMetric(hourlyRows, 'Jやり取り', hour),
-    boxMSend: cumulativeHourlyMetric(hourlyRows, 'Mやり取り', hour),
-    boxQSend: cumulativeHourlyMetric(hourlyRows, 'Qやり取り', hour),
-    accountSendStats: loginAccountDailyStats(html, date),
+    boxAReceivemails: hourly('A受信'),
+    boxBReceivemails: hourly('B受信'),
+    boxCReceivemails: hourly('C受信'),
+    boxEReceivemails: hourly('E受信'),
+    boxIReceivemails: hourly('I受信'),
+    boxJReceivemails: hourly('J受信'),
+    boxMReceivemails: hourly('M受信'),
+    boxQReceivemails: hourly('Q受信'),
+    sendTotal: hourly('やり取り送信'),
+    boxASend: hourly('Aやり取り'),
+    boxBSend: hourly('Bやり取り'),
+    boxCSend: hourly('Cやり取り'),
+    boxESend: hourly('Eやり取り'),
+    boxISend: hourly('Iやり取り'),
+    boxJSend: hourly('Jやり取り'),
+    boxMSend: hourly('Mやり取り'),
+    boxQSend: hourly('Qやり取り'),
+    accountSendStats: valueOrDefault('個人別本日結果', () => loginAccountDailyStats(html, date), new Map()),
   };
 }
 
@@ -566,19 +569,17 @@ async function fetchReportMetrics(date, hour) {
     code: '', frm: '', created_at_start: date.iso, created_at_end: date.iso,
     disp_type: '', folder_rcv_source: 'point', sum: '集計',
   });
-  const response = await networkRetry('log.digicafe.jp: mailnum_uf report', () => client.get(`${REPORT_URL}?${query}`, { headers: REQUEST_HEADERS }));
-  if (response.status !== 200) throw new Error(`管理画面データの取得に失敗しました（HTTP ${response.status}）。`);
+  const response = await requestOrNull('mailnum_uf', () => networkRetry('log.digicafe.jp: mailnum_uf report', () => client.get(`${REPORT_URL}?${query}`, { headers: REQUEST_HEADERS })));
+  const reportHtml = response?.status === 200 ? response.data : '';
   const salesQuery = new URLSearchParams({
     action_start: date.iso, action_end: date.iso,
     code: '', frm: '',
     created_at_start: date.iso, created_at_end: date.iso,
     sum: '集計',
   });
-  const salesResponse = await networkRetry('log.digicafe.jp: status/pt report', () => client.get(`${GROSS_SALES_URL}?${salesQuery}`, { headers: REQUEST_HEADERS }));
-  if (salesResponse.status !== 200) {
-    throw new Error(`グロス売上の取得に失敗しました（HTTP ${salesResponse.status}）。`);
-  }
-  let registrationMetrics = null;
+  const salesResponse = await requestOrNull('status/pt', () => networkRetry('log.digicafe.jp: status/pt report', () => client.get(`${GROSS_SALES_URL}?${salesQuery}`, { headers: REQUEST_HEADERS })));
+  const salesHtml = salesResponse?.status === 200 ? salesResponse.data : '';
+  let registrationMetrics = { registrations:0, ageVerifications:0 };
   try {
     const kaidanQuery = new URLSearchParams({
       category: '1', sex: '0',
@@ -589,12 +590,12 @@ async function fetchReportMetrics(date, hour) {
     if (kaidanResponse.status !== 200) throw new Error(`HTTP ${kaidanResponse.status}`);
     registrationMetrics = parseKaidanMetrics(kaidanResponse.data, date);
   } catch (error) {
-    console.warn(`${date.label} 男性登録・年確数は今回は取得できませんでした: ${error.message}`);
+    console.warn('WARNING: 男性登録・年確数を取得できないため0で継続します。');
   }
   return {
-    ...(await (async () => { const m = reportMetrics(response.data, date, hour); const start = new Date(Date.UTC(date.year, date.month - 2, 1)).toISOString().slice(0, 10); const q = new URLSearchParams({ sex: '0', sort: 'times', mail_start: date.iso, mail_end: date.iso, code: '', frm: '', created_at_start: start, created_at_end: date.iso, is_create: '1', disp_type: '', folder_rcv_source: 'point', sum: '集計' }); const r = await networkRetry('log.digicafe.jp: male cohort receive/DAU', () => client.get(`${REPORT_URL}?${q}`, { headers: REQUEST_HEADERS })); if (r.status !== 200) throw new Error(`全体送信データ HTTP ${r.status}`); const p = cheerio.load(r.data); m.newMaleReceive = summaryReportMetric(p, '全体送信データ', ['メール総数']); m.newMaleDau = summaryReportMetric(p, '全体送信データ', ['メール人数']); return m; })()),
-    grossSales: parseGrossSales(salesResponse.data, date),
-    paidMaleAllUsagePt: parsePaidMaleAllUsagePt(salesResponse.data, date),
+    ...(await (async () => { const m = reportMetrics(reportHtml, date, hour); const start = new Date(Date.UTC(date.year, date.month - 2, 1)).toISOString().slice(0, 10); const q = new URLSearchParams({ sex: '0', sort: 'times', mail_start: date.iso, mail_end: date.iso, code: '', frm: '', created_at_start: start, created_at_end: date.iso, is_create: '1', disp_type: '', folder_rcv_source: 'point', sum: '集計' }); const r = await requestOrNull('男性受信/DAU', () => networkRetry('log.digicafe.jp: male cohort receive/DAU', () => client.get(`${REPORT_URL}?${q}`, { headers: REQUEST_HEADERS }))); const p = cheerio.load(r?.status === 200 ? r.data : ''); m.newMaleReceive = numberOrZero('男性受信', () => summaryReportMetric(p, '全体送信データ', ['メール総数'])); m.newMaleDau = numberOrZero('男性DAU', () => summaryReportMetric(p, '全体送信データ', ['メール人数'])); return m; })()),
+    grossSales: numberOrZero('グロス売上', () => parseGrossSales(salesHtml, date)),
+    paidMaleAllUsagePt: numberOrZero('有料男性全利用Pt', () => parsePaidMaleAllUsagePt(salesHtml, date)),
     registrationMetrics,
   };
 }
@@ -829,13 +830,13 @@ async function updateSheet(metrics, hour, date, canRunForSlot) {
     const sendRow = row;
     const todayResultTargets = locateTodayResultTargets(values, date, nameToId, sheetName);
     const todayResultTimeRow = locateTodayResultTimeRow(values, date, sheetName);
-    const todayResultWrites = todayResultTargets.map((target) => {
+    const todayResultWrites = todayResultTargets.flatMap((target) => {
       const stats = metrics.accountSendStats.get(target.accountId);
-      if (!stats) throw new Error(`${target.name} (${target.accountId}) の本日送信実績が管理画面にありません。`);
-      return {
+      if (!stats) { console.warn('WARNING: 取得できない個人別本日結果は既存値を保持します。'); return []; }
+      return [{
         range: `'${sheetName}'!AW${target.row}:AY${target.row}`,
         values: [[stats.interaction, stats.individual, stats.broadcast]],
-      };
+      }];
     });
     let weeklyWrites = [];
     if (hour === 9 && weeklySourceRows) {
@@ -1004,7 +1005,7 @@ async function main() {
   console.log(`${date.label} ${hour}:00 -> ${destination}; all_receive=${metrics.receivemails}, uf_receive=${metrics.mktReceivemails}, individual_send=${metrics.individualSend}, individual_receive=${metrics.individualReceive}, gross_dau=${metrics.grossDau}, gross_sales=${metrics.grossSales}, paid_male_all_usage_pt=${metrics.paidMaleAllUsagePt}, male_registrations=${metrics.registrationMetrics?.registrations ?? 'unavailable'}, male_age_verifications=${metrics.registrationMetrics?.ageVerifications ?? 'unavailable'}, send_a=${metrics.boxASend}, send_b=${metrics.boxBSend}, send_c=${metrics.boxCSend}, send_e=${metrics.boxESend}, send_i=${metrics.boxISend}, send_j=${metrics.boxJSend}, send_m=${metrics.boxMSend}, send_q=${metrics.boxQSend}, send_total=${metrics.sendTotal}; source=${date.display}`);
 }
 
-main().catch((error) => {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main().catch((error) => {
   if (axios.isAxiosError(error) && error.response) {
     const title = cheerio.load(String(error.response.data ?? ''))('title').first().text().trim().replace(/\s+/g, ' ');
     console.error(`phpLiteAdmin request failed: HTTP ${error.response.status}; title=${title || '(none)'}`);
