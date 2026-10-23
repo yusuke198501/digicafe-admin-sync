@@ -162,7 +162,7 @@ test('21-column row places cohort sales in P/Q and T/U and prior mail in R/S',()
   assert.throws(()=>validateSnapshotDestination([{properties:{sheetId:1467610996,title:'シート8',gridProperties:{columnCount:21}}}]));
   assert.throws(()=>validateSnapshotDestination([{properties:{sheetId:1467610996,title:'シート8',gridProperties:{columnCount:22}}}]));
   assert.throws(()=>validateSnapshotDestination([{properties:{sheetId:1467610996,title:'シート8',gridProperties:{columnCount:23}}}]));
-  assert.doesNotThrow(()=>validateSnapshotDestination([{properties:{sheetId:1467610996,title:'シート8',gridProperties:{columnCount:25}}}]));
+  assert.doesNotThrow(()=>validateSnapshotDestination([{properties:{sheetId:1467610996,title:'シート8',gridProperties:{columnCount:26}}}]));
 });
 test('zero carry-forward uses all twenty updated columns without mixing R/S and P/Q',()=>{
   const previous=['2026-10-20 14:00:00',...Array.from({length:20},(_,i)=>i+1)];

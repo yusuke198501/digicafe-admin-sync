@@ -2,6 +2,10 @@ name: シート8 5分集計
 on:
   workflow_dispatch:
     inputs:
+      ga4_probe:
+        description: 'Read-only GA4 realtime test'
+        type: boolean
+        default: false
       payment_probe:
         description: 'Read-only payment point test (no spreadsheet writes)'
         type: boolean
@@ -26,9 +30,11 @@ jobs:
         with:
           node-version: 22
       - run: npm install --ignore-scripts --no-audit --no-fund
-      - run: node --test scripts/sync-sheet8.test.js scripts/payment-points.test.js scripts/voluntary-leaves.test.js
+      - run: node --test scripts/sync-sheet8.test.js scripts/payment-points.test.js scripts/voluntary-leaves.test.js scripts/ga4-realtime.test.mjs
       - run: node scripts/sync-sheet8.js
         env:
+          GA4_PROBE_ONLY: ${{ inputs.ga4_probe }}
+          GA4_OAUTH_JSON: ${{ secrets.GA4_OAUTH_JSON }}
           PAYMENT_PROBE_ONLY: ${{ inputs.payment_probe }}
           LEAVE_PROBE_ONLY: ${{ inputs.leave_probe }}
           GITHUB_TOKEN: ${{ github.token }}

@@ -1,3 +1,4 @@
+import { fetchGa4Realtime, ga4OrBlank } from './ga4-realtime.mjs';
 import axios from 'axios';
 import { refreshAgeChart } from './age-verification-chart.js';
 import { wrapper } from 'axios-cookiejar-support';
@@ -15,7 +16,7 @@ const BASE = 'https://log.digicafe.jp/partner/';
 const SHEET = "'シート8'";
 export function validateSnapshotDestination(sheets) {
   const sheet = sheets?.find(s => s.properties?.sheetId === 1467610996)?.properties;
-  if (!sheet || sheet.title !== 'シート8' || sheet.gridProperties?.columnCount < 25) throw new Error('シート8の書き込み先を確認できません。');
+  if (!sheet || sheet.title !== 'シート8' || sheet.gridProperties?.columnCount < 26) throw new Error('シート8の書き込み先を確認できません。');
 }
 const compact = (s) => String(s ?? '').replace(/\s/g, '');
 function number(s) {
@@ -237,6 +238,7 @@ async function main() {
     console.log(JSON.stringify({paymentProbe:{timestamp,points}}));
     return;
   }
+  if (process.env.GA4_PROBE_ONLY === 'true') { console.log(JSON.stringify({ga4Probe:{timestamp,activeUsers:await fetchGa4Realtime()}})); return; }
   // Old queued dispatches must not manufacture historical snapshots.
   if (process.env.GITHUB_RUN_ID && process.env.GITHUB_TOKEN) {
     const r = await fetch(`https://api.github.com/repos/${required('GITHUB_REPOSITORY')}/actions/runs/${process.env.GITHUB_RUN_ID}`, {headers:{Authorization:`Bearer ${process.env.GITHUB_TOKEN}`}});
@@ -261,6 +263,7 @@ async function main() {
     }
     break;
   }
+  const ga4Promise = ga4OrBlank();
   const paymentPromise = metricOrZero('W 入金ポイント',1,async()=>[await fetchPaymentPoints(timestamp,process.env.ADMIN_DIGICAFE_USERNAME,process.env.ADMIN_DIGICAFE_PASSWORD)]);
   const leavePromise = metricOrZero('X 男性自主退会数（毎時）',1,async()=>[await hourlyVoluntaryLeaves(sheets,spreadsheetId,timestamp)]);
   const client = wrapper(axios.create({jar:new CookieJar(),timeout:45000,headers:{'User-Agent':'Mozilla/5.0','Accept-Language':'ja-JP,ja;q=0.9'}}));
@@ -325,13 +328,18 @@ async function main() {
   ]);
   const [paymentPoints] = await paymentPromise;
   const [voluntaryLeaves] = await leavePromise;
+  const ga4ActiveUsers = await ga4Promise;
   if (!collectionWindowValid(start,new Date())) throw new Error('取得が4分以上経過、または日付が変わりました。追記しません。');
   const row = carryForwardZeros(buildSnapshotRow({timestamp,sent,received,senders,logins,payers,amount,broadcastSent,broadcastReceived,maleReceived,maleReceivers,clicks,registrations,currentDau,currentReceived,currentCohortPayers,currentCohortAmount,priorDau,priorReceived,priorCohortPayers,priorCohortAmount,allUsagePt,paymentPoints,voluntaryLeaves,ageVerifications}),previous);
-  const result = await sheets.spreadsheets.values.append({spreadsheetId,range:`${SHEET}!A:Y`,valueInputOption:'RAW',insertDataOption:'INSERT_ROWS',requestBody:{values:[row]}});
+  // Realtime is not cumulative: preserve genuine zero and never copy stale values.
+  row.push(ga4ActiveUsers);
+  const result = await sheets.spreadsheets.values.append({spreadsheetId,range:`${SHEET}!A:Z`,valueInputOption:'RAW',insertDataOption:'INSERT_ROWS',requestBody:{values:[row]}});
   const range = result.data.updates?.updatedRange;
   if (!range) throw new Error('追記結果の範囲がありません。');
   const read = (await sheets.spreadsheets.values.get({spreadsheetId,range,valueRenderOption:'UNFORMATTED_VALUE'})).data.values;
-  if (JSON.stringify(read?.[0]) !== JSON.stringify(row)) throw new Error('追記後の照合に失敗しました。');
+  const verified = read?.[0] ? [...read[0]] : [];
+  if (row[25] === '' && verified.length === 25) verified.push('');
+  if (JSON.stringify(verified) !== JSON.stringify(row)) throw new Error('追記後の照合に失敗しました。');
   console.log(JSON.stringify({range,row}));
   try { await refreshAgeChart(sheets,spreadsheetId); } catch { console.warn('WARNING: 年確数グラフの系列確認を次回に持ち越します。記録は完了しています。'); }
 }
