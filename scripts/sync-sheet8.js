@@ -254,7 +254,7 @@ async function main() {
   const metadata = await sheets.spreadsheets.get({spreadsheetId,fields:'sheets(properties(sheetId,title,gridProperties(columnCount)))'});
   validateSnapshotDestination(metadata.data.sheets);
   const timestamps = (await sheets.spreadsheets.values.get({spreadsheetId,range:`${SHEET}!A2:A`})).data.values ?? [];
-  if (timestamps.slice(-100).some(r => slot(String(r[0])) === slot(timestamp))) { console.log('SKIPPED: snapshot for this 5-minute slot exists'); return; }
+  if (timestamps.slice(-100).some(r => slot(String(r[0])) === slot(timestamp))) { await refreshGa4Chart(sheets,spreadsheetId); console.log('SKIPPED: snapshot for this 5-minute slot exists; charts refreshed'); return; }
   let previous;
   for (let i=timestamps.length-1;i>=0;i--) {
     const candidate = String(timestamps[i][0]);
