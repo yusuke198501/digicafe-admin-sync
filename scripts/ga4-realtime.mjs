@@ -16,7 +16,12 @@ export async function fetchGa4Realtime(encoded = process.env.GA4_OAUTH_JSON, req
   const token = await tokenResponse.json();
   if (!token.access_token) throw new Error('GA4_TOKEN_REFRESH_FAILED');
   const response = await request('https://analyticsdata.googleapis.com/v1beta/properties/312405480:runRealtimeReport', {method:'POST',headers:{Authorization:`Bearer ${token.access_token}`,'Content-Type':'application/json'},body:JSON.stringify({metrics:[{name:'activeUsers'}],minuteRanges:[{startMinutesAgo:29,endMinutesAgo:0}]}),signal:AbortSignal.timeout(20000)});
-  if (!response.ok) throw new Error('GA4_REPORT_HTTP_' + response.status);
+  if (!response.ok) {
+    const failure = await response.json().catch(()=>({}));
+    const reason = failure.error?.details?.find(d=>/^[A-Z_]+$/.test(d.reason ?? ''))?.reason;
+    const category = reason ?? (/sufficient permissions|permission.*property/i.test(failure.error?.message ?? '') ? 'PROPERTY_ACCESS_DENIED' : 'REQUEST_DENIED');
+    throw new Error('GA4_REPORT_HTTP_' + response.status + '_' + category);
+  }
   return parseRealtime(await response.json());
 }
 export async function ga4OrBlank(collect = fetchGa4Realtime, warn = console.warn) {
