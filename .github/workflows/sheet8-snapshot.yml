@@ -30,7 +30,7 @@ jobs:
         with:
           node-version: 22
       - run: npm install --ignore-scripts --no-audit --no-fund
-      - run: node --test scripts/sync-sheet8.test.js scripts/payment-points.test.js scripts/voluntary-leaves.test.js scripts/ga4-realtime.test.mjs scripts/ga4-chart.test.mjs
+      - run: node --test scripts/sync-sheet8.test.js scripts/payment-points.test.js scripts/voluntary-leaves.test.js scripts/ga4-realtime.test.mjs scripts/ga4-chart.test.mjs scripts/expanded-chart.test.mjs
       - run: node scripts/sync-sheet8.js
         env:
           GA4_PROBE_ONLY: ${{ inputs.ga4_probe }}
