@@ -1,3 +1,4 @@
+import { refreshGa4Chart } from './ga4-chart.mjs';
 import { fetchGa4Realtime, ga4OrBlank } from './ga4-realtime.mjs';
 import axios from 'axios';
 import { refreshAgeChart } from './age-verification-chart.js';
@@ -341,6 +342,7 @@ async function main() {
   if (row[25] === '' && verified.length === 25) verified.push('');
   if (JSON.stringify(verified) !== JSON.stringify(row)) throw new Error('追記後の照合に失敗しました。');
   console.log(JSON.stringify({range,row}));
+  try { await refreshGa4Chart(sheets,spreadsheetId); } catch { console.warn('WARNING: GA4 chart refresh deferred; snapshot saved.'); }
   try { await refreshAgeChart(sheets,spreadsheetId); } catch { console.warn('WARNING: 年確数グラフの系列確認を次回に持ち越します。記録は完了しています。'); }
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main().catch(e => { console.error(e.message); process.exitCode = 1; });
