@@ -26,7 +26,7 @@ export async function fetchGa4Realtime(encoded = process.env.GA4_OAUTH_JSON, req
       else console.log('GA4_AUTH_EMAIL_NOT_INCLUDED_IN_EXISTING_SCOPE');
     }
   }
-  const response = await request('https://analyticsdata.googleapis.com/v1beta/properties/312405480:runRealtimeReport', {method:'POST',headers:{Authorization:`Bearer ${token.access_token}`,'Content-Type':'application/json'},body:JSON.stringify({metrics:[{name:'activeUsers'}],minuteRanges:[{startMinutesAgo:29,endMinutesAgo:0}]}),signal:AbortSignal.timeout(20000)});
+  const response = await request('https://analyticsdata.googleapis.com/v1beta/properties/312405480:runRealtimeReport', {method:'POST',headers:{Authorization:`Bearer ${token.access_token}`,'Content-Type':'application/json'},body:JSON.stringify({metrics:[{name:'activeUsers'}],minuteRanges:[{startMinutesAgo:4,endMinutesAgo:0}]}),signal:AbortSignal.timeout(20000)});
   if (!response.ok) {
     const failure = await response.json().catch(()=>({}));
     const reason = failure.error?.details?.find(d=>/^[A-Z_]+$/.test(d.reason ?? ''))?.reason;
