@@ -1,4 +1,4 @@
-export const AGE_CHART_TITLE = '??????';
+export const AGE_CHART_TITLE = '年確数の推移';
 export function ageChartSeries(values) {
   const styles = [[1,'SOLID',[66,133,244]],[2,'SOLID',[153,153,153]],[3,'SOLID',[153,0,255]],[4,'MEDIUM_DASHED',[66,133,244]],[5,'SOLID',[255,109,1]]];
   return styles.filter(([column]) => values.slice(1).some(row => typeof row[column] === 'number' && Number.isFinite(row[column])))
@@ -8,7 +8,7 @@ export async function refreshAgeChart(sheets,spreadsheetId) {
   const metadata=await sheets.spreadsheets.get({spreadsheetId,fields:'sheets(charts(chartId,spec))'});
   const chart=metadata.data.sheets?.flatMap(s=>s.charts??[]).find(c=>c.spec?.title===AGE_CHART_TITLE);
   if(!chart?.spec?.basicChart) return;
-  const response=await sheets.spreadsheets.values.get({spreadsheetId,range:"'???'!AP1606:AU1654",valueRenderOption:'UNFORMATTED_VALUE'});
+  const response=await sheets.spreadsheets.values.get({spreadsheetId,range:"'グラフ'!AP1606:AU1654",valueRenderOption:'UNFORMATTED_VALUE'});
   const series=ageChartSeries(response.data.values??[]);
   if(!series.length) return;
   const shape=s=>({range:s.series?.sourceRange,line:s.lineStyle,color:s.colorStyle,point:s.pointStyle});
