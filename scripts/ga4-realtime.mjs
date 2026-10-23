@@ -6,6 +6,9 @@ export function parseRealtime(report) {
   if (!/^\d+$/.test(value ?? '') || !Number.isSafeInteger(Number(value))) throw new Error('GA4_INVALID_REPORT');
   return Number(value);
 }
+export function realtimeRequest(maleOnly = process.env.GA4_PROBE_ONLY === 'true') {
+  return {metrics:[{name:'activeUsers'}],minuteRanges:[{startMinutesAgo:4,endMinutesAgo:0}],...(maleOnly ? {dimensions:[{name:'audienceName'}],dimensionFilter:{filter:{fieldName:'audienceName',stringFilter:{matchType:'EXACT',value:'男性',caseSensitive:true}}}} : {})};
+}
 export async function fetchGa4Realtime(encoded = process.env.GA4_OAUTH_JSON, request = fetch) {
   let c;
   try { c = JSON.parse(encoded); } catch { throw new Error('GA4_CREDENTIALS_MISSING'); }
@@ -26,14 +29,17 @@ export async function fetchGa4Realtime(encoded = process.env.GA4_OAUTH_JSON, req
       else console.log('GA4_AUTH_EMAIL_NOT_INCLUDED_IN_EXISTING_SCOPE');
     }
   }
-  const response = await request('https://analyticsdata.googleapis.com/v1beta/properties/312405480:runRealtimeReport', {method:'POST',headers:{Authorization:`Bearer ${token.access_token}`,'Content-Type':'application/json'},body:JSON.stringify({metrics:[{name:'activeUsers'}],minuteRanges:[{startMinutesAgo:4,endMinutesAgo:0}]}),signal:AbortSignal.timeout(20000)});
+  const query=realtimeRequest();
+  const response = await request('https://analyticsdata.googleapis.com/v1beta/properties/312405480:runRealtimeReport', {method:'POST',headers:{Authorization:`Bearer ${token.access_token}`,'Content-Type':'application/json'},body:JSON.stringify(query),signal:AbortSignal.timeout(20000)});
   if (!response.ok) {
     const failure = await response.json().catch(()=>({}));
     const reason = failure.error?.details?.find(d=>/^[A-Z_]+$/.test(d.reason ?? ''))?.reason;
     const category = reason ?? (/sufficient permissions|permission.*property/i.test(failure.error?.message ?? '') ? 'PROPERTY_ACCESS_DENIED' : 'REQUEST_DENIED');
     throw new Error('GA4_REPORT_HTTP_' + response.status + '_' + category);
   }
-  return parseRealtime(await response.json());
+  const report=await response.json();
+  if (query.dimensionFilter && report.rows?.some(row=>row.dimensionValues?.[0]?.value !== '男性')) throw new Error('GA4_AUDIENCE_MISMATCH');
+  return parseRealtime(report);
 }
 export async function ga4OrBlank(collect = fetchGa4Realtime, warn = console.warn) {
   try { return await collect(); } catch { warn('WARNING: GA4 realtime unavailable; Z left blank (not copied or zero-filled).'); return ''; }
