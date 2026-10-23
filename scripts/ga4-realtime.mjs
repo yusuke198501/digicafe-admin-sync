@@ -15,6 +15,17 @@ export async function fetchGa4Realtime(encoded = process.env.GA4_OAUTH_JSON, req
   if (!tokenResponse.ok) throw new Error('GA4_TOKEN_REFRESH_FAILED');
   const token = await tokenResponse.json();
   if (!token.access_token) throw new Error('GA4_TOKEN_REFRESH_FAILED');
+  if (process.env.GA4_PROBE_ONLY === 'true') {
+    const scope = typeof token.scope === 'string' ? token.scope.split(' ') : [];
+    console.log('GA4_ANALYTICS_READ_SCOPE=' + scope.includes('https://www.googleapis.com/auth/analytics.readonly'));
+    const infoResponse = await request('https://oauth2.googleapis.com/tokeninfo', {method:'POST',body:new URLSearchParams({access_token:token.access_token}),signal:AbortSignal.timeout(20000)});
+    if (infoResponse.ok) {
+      const info = await infoResponse.json();
+      console.log('GA4_TOKENINFO_ANALYTICS_READ_SCOPE=' + String(info.scope ?? '').split(' ').includes('https://www.googleapis.com/auth/analytics.readonly'));
+      if (/^[a-zA-Z0-9._+-]+@[a-zA-Z0-9.-]+$/.test(info.email ?? '')) console.log('GA4_AUTH_EMAIL=' + info.email);
+      else console.log('GA4_AUTH_EMAIL_NOT_INCLUDED_IN_EXISTING_SCOPE');
+    }
+  }
   const response = await request('https://analyticsdata.googleapis.com/v1beta/properties/312405480:runRealtimeReport', {method:'POST',headers:{Authorization:`Bearer ${token.access_token}`,'Content-Type':'application/json'},body:JSON.stringify({metrics:[{name:'activeUsers'}],minuteRanges:[{startMinutesAgo:29,endMinutesAgo:0}]}),signal:AbortSignal.timeout(20000)});
   if (!response.ok) {
     const failure = await response.json().catch(()=>({}));
