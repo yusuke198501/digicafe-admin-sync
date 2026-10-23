@@ -6,7 +6,7 @@ export function parseRealtime(report) {
   if (!/^\d+$/.test(value ?? '') || !Number.isSafeInteger(Number(value))) throw new Error('GA4_INVALID_REPORT');
   return Number(value);
 }
-export function realtimeRequest(maleOnly = process.env.GA4_PROBE_ONLY === 'true') {
+export function realtimeRequest(maleOnly = true) {
   return {metrics:[{name:'activeUsers'}],minuteRanges:[{startMinutesAgo:4,endMinutesAgo:0}],...(maleOnly ? {dimensions:[{name:'audienceName'}],dimensionFilter:{filter:{fieldName:'audienceName',stringFilter:{matchType:'EXACT',value:'男性',caseSensitive:true}}}} : {})};
 }
 export async function fetchGa4Realtime(encoded = process.env.GA4_OAUTH_JSON, request = fetch) {
