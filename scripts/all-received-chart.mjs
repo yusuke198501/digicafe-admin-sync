@@ -15,17 +15,17 @@ export async function refreshAllReceivedChart(sheets,spreadsheetId) {
   // Keep a correctly styled empty target series until the selected day has records.
   const shown=series.length?series:allReceivedSeries([[],[0,0]]);
   const domains=[{domain:{sourceRange:{sources:[{sheetId:174166888,startRowIndex:1656,endRowIndex:1705,startColumnIndex:41,endColumnIndex:42}]}}}];
-  const spec={...(existing?.spec??template.spec),title:ALL_RECEIVED_CHART_TITLE,basicChart:{...(existing?.spec?.basicChart??template.spec.basicChart),domains,series:shown,headerCount:1,interpolateNulls:false,axis:[{position:'BOTTOM_AXIS',title:'時刻'},{position:'LEFT_AXIS',title:'通'}]}};
+  const spec={...(existing?.spec??template.spec),title:ALL_RECEIVED_CHART_TITLE,subtitle:'実線＝実績／青い破線＝当日予測（比較日基準）',basicChart:{...(existing?.spec?.basicChart??template.spec.basicChart),domains,series:shown,headerCount:1,interpolateNulls:false,axis:[{position:'BOTTOM_AXIS',title:'時刻'},{position:'LEFT_AXIS',title:'通'}]}};
   const requests=[];
   if(!existing) {
     const ga=charts.find(c=>c.chartId===546867842)?.position?.overlayPosition;
     let p=ga?{...ga,anchorCell:{...ga.anchorCell},offsetXPixels:750,widthPixels:730,heightPixels:300}:null;
     if(!p || charts.some(c=>{const q=c.position?.overlayPosition;return q?.anchorCell?.rowIndex===p.anchorCell.rowIndex && (q.offsetXPixels??0)===750;})) {
-      const bottom=Math.max(...charts.map(c=>c.position?.overlayPosition?.anchorCell?.rowIndex??0));
-      p={anchorCell:{sheetId:174166888,rowIndex:bottom+18,columnIndex:0},offsetXPixels:0,offsetYPixels:0,widthPixels:730,heightPixels:300};
+      // Beside the existing wide increment graphs, below the GA4 graph.
+      p={anchorCell:{sheetId:174166888,rowIndex:169,columnIndex:0},offsetXPixels:0,offsetYPixels:0,widthPixels:730,heightPixels:300};
     }
     requests.push({addChart:{chart:{chartId:ALL_RECEIVED_CHART_ID,spec,position:{overlayPosition:p}}}});
-  } else if(JSON.stringify(existing.spec.basicChart.series)!==JSON.stringify(shown)) {
+  } else if(existing.spec.subtitle!==spec.subtitle || JSON.stringify(existing.spec.basicChart.series)!==JSON.stringify(shown)) {
     requests.push({updateChartSpec:{chartId:existing.chartId,spec}});
   }
   // The newly added comparison row 34 must not sit underneath the first chart row.
