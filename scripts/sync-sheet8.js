@@ -17,7 +17,7 @@ const BASE = 'https://log.digicafe.jp/partner/';
 const SHEET = "'シート8'";
 export function validateSnapshotDestination(sheets) {
   const sheet = sheets?.find(s => s.properties?.sheetId === 1467610996)?.properties;
-  if (!sheet || sheet.title !== 'シート8' || sheet.gridProperties?.columnCount < 26) throw new Error('シート8の書き込み先を確認できません。');
+  if (!sheet || sheet.title !== 'シート8' || sheet.gridProperties?.columnCount < 27) throw new Error('シート8の書き込み先を確認できません。');
 }
 const compact = (s) => String(s ?? '').replace(/\s/g, '');
 function number(s) {
@@ -37,6 +37,17 @@ export function slot(timestamp) {
 export function collectionWindowValid(start, end) {
   return end >= start && end - start < 240000 && jstTimestamp(start).slice(0,10) === jstTimestamp(end).slice(0,10);
 }
+export function parseAllReceived(html) {
+  const $ = cheerio.load(html);
+  const tables = $('table').toArray().filter(t => compact($(t).find('tr').first().text()) === '全体受信データ');
+  if (tables.length !== 1) throw new Error('全体受信データの表を特定できません。');
+  const rows = $(tables[0]).find('tr').toArray().map(r => $(r).children('th,td').toArray().map(c => compact($(c).text())));
+  const header = rows.findIndex(r => r.includes('メール総数'));
+  const data = header < 0 ? [] : rows.slice(header + 1).filter(r => r.some(Boolean));
+  if (header < 0 || data.length !== 1) throw new Error('全体受信データの集計行を特定できません。');
+  return number(data[0][rows[header].indexOf('メール総数')].replace(/通$/, ''));
+}
+
 export function parseInteractions(html) {
   const $ = cheerio.load(html);
   const title = 'UF_MKT系データ(ログインアカウント別/時間毎)';
@@ -260,7 +271,7 @@ async function main() {
     const candidate = String(timestamps[i][0]);
     if (!slot(candidate) || candidate >= timestamp) continue;
     if (candidate.slice(0,10) === date) {
-      previous = (await sheets.spreadsheets.values.get({spreadsheetId,range:`${SHEET}!A${i+2}:Y${i+2}`,valueRenderOption:'UNFORMATTED_VALUE'})).data.values?.[0];
+      previous = (await sheets.spreadsheets.values.get({spreadsheetId,range:`${SHEET}!A${i+2}:AA${i+2}`,valueRenderOption:'UNFORMATTED_VALUE'})).data.values?.[0];
     }
     break;
   }
@@ -291,6 +302,9 @@ async function main() {
   mailUrl.search = new URLSearchParams({sex:'1',sort:'times',mail_start:date,mail_end:date,created_at_start:date,created_at_end:date,folder_rcv_source:'point',sum:'集計'});
   // Independent metric groups run concurrently. One missing table, failed
   // request, or authentication failure cannot abort the remaining metrics.
+  // Share the existing female report request; no additional heavy aggregation.
+  const mailHtml = partnerGet(mailUrl.href);
+  mailHtml.catch(() => {});
   const formHtml = partnerGet(new URL('list', BASE).href).catch(()=>null);
   async function memberCount(type) {
     const html = await formHtml;
@@ -306,7 +320,7 @@ async function main() {
   // This endpoint has no partner navigation/logout link; validate its actual
   // form conditions and summary table instead. Never send credentials to it.
   const [[sent,received,broadcastSent,broadcastReceived],[senders],[logins],[payers,amount],[maleReceived,maleReceivers],[clicks],[registrations,ageVerifications],[currentDau,currentReceived],[priorDau,priorReceived],[currentCohortPayers,currentCohortAmount],[priorCohortPayers,priorCohortAmount]] = await Promise.all([
-    metricOrZero('B/C/H/I 送受信・同報',4,async()=>parseInteractions(await partnerGet(mailUrl.href))),
+    metricOrZero('B/C/H/I 送受信・同報',4,async()=>parseInteractions(await mailHtml)),
     metricOrZero('D 送信ユーザー数',1,()=>memberCount('message_sent')),
     metricOrZero('E ログイン数',1,()=>memberCount('login')),
     metricOrZero('F/G 入金者数・入金額',2,async()=>parsePayers(await ptHtml,date)),
@@ -327,6 +341,7 @@ async function main() {
       return parseCohortSales(response.data,date,prior);
     }))
   ]);
+  const [allReceived] = await metricOrZero('AA 全体受信数',1,async()=>[parseAllReceived(await mailHtml)]);
   const [paymentPoints] = await paymentPromise;
   const [voluntaryLeaves] = await leavePromise;
   const ga4ActiveUsers = await ga4Promise;
@@ -334,12 +349,14 @@ async function main() {
   const row = carryForwardZeros(buildSnapshotRow({timestamp,sent,received,senders,logins,payers,amount,broadcastSent,broadcastReceived,maleReceived,maleReceivers,clicks,registrations,currentDau,currentReceived,currentCohortPayers,currentCohortAmount,priorDau,priorReceived,priorCohortPayers,priorCohortAmount,allUsagePt,paymentPoints,voluntaryLeaves,ageVerifications}),previous);
   // Realtime is not cumulative: preserve genuine zero and never copy stale values.
   row.push(ga4ActiveUsers);
-  const result = await sheets.spreadsheets.values.append({spreadsheetId,range:`${SHEET}!A:Z`,valueInputOption:'RAW',insertDataOption:'INSERT_ROWS',requestBody:{values:[row]}});
+  // Apply the existing same-day zero fallback only to AA, never to realtime GA4.
+  row.push(carryForwardZeros([...row.slice(0,25),0,allReceived],previous)[26]);
+  const result = await sheets.spreadsheets.values.append({spreadsheetId,range:`${SHEET}!A:AA`,valueInputOption:'RAW',insertDataOption:'INSERT_ROWS',requestBody:{values:[row]}});
   const range = result.data.updates?.updatedRange;
   if (!range) throw new Error('追記結果の範囲がありません。');
   const read = (await sheets.spreadsheets.values.get({spreadsheetId,range,valueRenderOption:'UNFORMATTED_VALUE'})).data.values;
   const verified = read?.[0] ? [...read[0]] : [];
-  if (row[25] === '' && verified.length === 25) verified.push('');
+  while (verified.length < row.length && row.slice(verified.length).every(v => v === '')) verified.push('');
   if (JSON.stringify(verified) !== JSON.stringify(row)) throw new Error('追記後の照合に失敗しました。');
   console.log(JSON.stringify({range,row}));
   try { await refreshGa4Chart(sheets,spreadsheetId); } catch { console.warn('WARNING: GA4 chart refresh deferred; snapshot saved.'); }
