@@ -1,4 +1,3 @@
-import { refreshDeltaCharts } from './delta-charts.mjs';
 import { refreshAllReceivedChart } from './all-received-chart.mjs';
 import { refreshExpandedChart } from './expanded-chart.mjs';
 export const GA4_CHART_TITLE='GA4男性アクティブユーザー数（直近5分）の推移';
@@ -11,7 +10,6 @@ export function ga4ChartSeries(values) {
 }
 export async function refreshGa4Chart(sheets,spreadsheetId) {
   await refreshExpandedChart(sheets,spreadsheetId);
-  await refreshDeltaCharts(sheets,spreadsheetId);
   await refreshAllReceivedChart(sheets,spreadsheetId);
   const metadata=await sheets.spreadsheets.get({spreadsheetId,fields:'sheets(charts(chartId,spec))'});
   const chart=metadata.data.sheets?.flatMap(s=>s.charts??[]).find(c=>c.spec?.title===GA4_CHART_TITLE);
