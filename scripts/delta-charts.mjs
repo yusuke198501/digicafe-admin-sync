@@ -3,6 +3,14 @@ import { pathToFileURL } from 'node:url';
 const TARGETS = new Map([[1213750843, [3,7,11,13,12,14]], [2074059065, [5,9,15,17,16,18]]]);
 const COLORS = [[66,133,244],[153,0,255],[66,133,244],[153,0,255],[255,109,1],[180,95,6]];
 
+export function sameSeriesStyle(got, want) {
+  const a=got.colorStyle?.rgbColor??got.color??{}, b=want.colorStyle.rgbColor;
+  return ['red','green','blue'].every(k=>Math.abs((a[k]??0)-(b[k]??0))<0.000001)
+    && got.lineStyle?.type===want.lineStyle.type
+    && got.lineStyle?.width===want.lineStyle.width
+    && (got.targetAxis??'LEFT_AXIS')===want.targetAxis;
+}
+
 export function deltaChartSpec(chart) {
   const expected = TARGETS.get(chart.chartId);
   if (!expected) return null;
@@ -33,7 +41,7 @@ export async function refreshDeltaCharts(sheets, spreadsheetId) {
   const requests = [];
   for(const chart of charts) {
     const spec = deltaChartSpec(chart);
-    if(spec && JSON.stringify(spec)!==JSON.stringify(chart.spec)) requests.push({updateChartSpec:{chartId:chart.chartId,spec}});
+    if(spec && (!chart.spec.basicChart.series.every((s,i)=>sameSeriesStyle(s,spec.basicChart.series[i])) || JSON.stringify(chart.spec.basicChart.axis)!==JSON.stringify(spec.basicChart.axis))) requests.push({updateChartSpec:{chartId:chart.chartId,spec}});
   }
   if(requests.length) {
     await sheets.spreadsheets.batchUpdate({spreadsheetId,requestBody:{requests}});
@@ -41,7 +49,10 @@ export async function refreshDeltaCharts(sheets, spreadsheetId) {
     for(const request of requests) {
       const chart = verified.find(c=>c.chartId===request.updateChartSpec.chartId);
       const want = request.updateChartSpec.spec.basicChart.series;
-      if(!chart || chart.spec.basicChart.series.some((s,i)=>s.lineStyle?.type!==want[i].lineStyle.type || s.targetAxis!==want[i].targetAxis || JSON.stringify(s.colorStyle)!==JSON.stringify(want[i].colorStyle))) throw new Error('Delta chart style verification failed');
+      if(!chart || chart.spec.basicChart.series.some((s,i)=>!sameSeriesStyle(s,want[i]))) {
+        console.log(JSON.stringify({chartId:chart?.chartId,styles:chart?.spec.basicChart.series.map(s=>({color:s.colorStyle,line:s.lineStyle,axis:s.targetAxis}))}));
+        throw new Error('Delta chart style verification failed');
+      }
     }
   }
   console.log('Delta charts verified: six series, matching dashed forecasts, monthly averages, correct receive axis.');
