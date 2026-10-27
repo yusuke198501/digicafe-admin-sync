@@ -2,6 +2,10 @@ name: シート8 5分集計
 on:
   workflow_dispatch:
     inputs:
+      charts_only:
+        description: 'Refresh chart styles only; no snapshot or admin requests'
+        type: boolean
+        default: false
       ga4_probe:
         description: 'Read-only GA4 realtime test'
         type: boolean
@@ -30,8 +34,13 @@ jobs:
         with:
           node-version: 22
       - run: npm install --ignore-scripts --no-audit --no-fund
-      - run: node --test scripts/sync-sheet8.test.js scripts/payment-points.test.js scripts/voluntary-leaves.test.js scripts/ga4-realtime.test.mjs scripts/ga4-chart.test.mjs scripts/all-received-chart.test.mjs scripts/expanded-chart.test.mjs scripts/expanded-chart.test.mjs
-      - run: node scripts/sync-sheet8.js
+      - run: node --test scripts/sync-sheet8.test.js scripts/payment-points.test.js scripts/voluntary-leaves.test.js scripts/ga4-realtime.test.mjs scripts/ga4-chart.test.mjs scripts/delta-charts.test.mjs scripts/all-received-chart.test.mjs scripts/expanded-chart.test.mjs scripts/expanded-chart.test.mjs
+      - run: |
+          if [ "${{ inputs.charts_only }}" = "true" ]; then
+            node scripts/delta-charts.mjs
+          else
+            node scripts/sync-sheet8.js
+          fi
         env:
           GA4_PROBE_ONLY: ${{ inputs.ga4_probe }}
           GA4_OAUTH_JSON: ${{ secrets.GA4_OAUTH_JSON }}
