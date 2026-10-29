@@ -567,7 +567,7 @@ async function fetchReportMetrics(date, hour) {
   const query = new URLSearchParams({
     sex: '1', sort: 'times', mail_start: date.iso, mail_end: date.iso,
     code: '', frm: '', created_at_start: date.iso, created_at_end: date.iso,
-    disp_type: '', folder_rcv_source: 'point', sum: '集計',
+    disp_type: '', folder_rcv_source: 'point', account_scope: 'all', sum: '集計',
   });
   const response = await requestOrNull('mailnum_uf', () => networkRetry('log.digicafe.jp: mailnum_uf report', () => client.get(`${REPORT_URL}?${query}`, { headers: REQUEST_HEADERS })));
   const reportHtml = response?.status === 200 ? response.data : '';
@@ -593,7 +593,7 @@ async function fetchReportMetrics(date, hour) {
     console.warn('WARNING: 男性登録・年確数を取得できないため0で継続します。');
   }
   return {
-    ...(await (async () => { const m = reportMetrics(reportHtml, date, hour); const start = new Date(Date.UTC(date.year, date.month - 2, 1)).toISOString().slice(0, 10); const q = new URLSearchParams({ sex: '0', sort: 'times', mail_start: date.iso, mail_end: date.iso, code: '', frm: '', created_at_start: start, created_at_end: date.iso, is_create: '1', disp_type: '', folder_rcv_source: 'point', sum: '集計' }); const r = await requestOrNull('男性受信/DAU', () => networkRetry('log.digicafe.jp: male cohort receive/DAU', () => client.get(`${REPORT_URL}?${q}`, { headers: REQUEST_HEADERS }))); const p = cheerio.load(r?.status === 200 ? r.data : ''); m.newMaleReceive = numberOrZero('男性受信', () => summaryReportMetric(p, '全体送信データ', ['メール総数'])); m.newMaleDau = numberOrZero('男性DAU', () => summaryReportMetric(p, '全体送信データ', ['メール人数'])); return m; })()),
+    ...(await (async () => { const m = reportMetrics(reportHtml, date, hour); const start = new Date(Date.UTC(date.year, date.month - 2, 1)).toISOString().slice(0, 10); const q = new URLSearchParams({ sex: '0', sort: 'times', mail_start: date.iso, mail_end: date.iso, code: '', frm: '', created_at_start: start, created_at_end: date.iso, is_create: '1', disp_type: '', folder_rcv_source: 'point', account_scope: 'all', sum: '集計' }); const r = await requestOrNull('男性受信/DAU', () => networkRetry('log.digicafe.jp: male cohort receive/DAU', () => client.get(`${REPORT_URL}?${q}`, { headers: REQUEST_HEADERS }))); const p = cheerio.load(r?.status === 200 ? r.data : ''); m.newMaleReceive = numberOrZero('男性受信', () => summaryReportMetric(p, '全体送信データ', ['メール総数'])); m.newMaleDau = numberOrZero('男性DAU', () => summaryReportMetric(p, '全体送信データ', ['メール人数'])); return m; })()),
     grossSales: numberOrZero('グロス売上', () => parseGrossSales(salesHtml, date)),
     paidMaleAllUsagePt: numberOrZero('有料男性全利用Pt', () => parsePaidMaleAllUsagePt(salesHtml, date)),
     registrationMetrics,
@@ -606,7 +606,7 @@ async function fetchTodayResultStats(date) {
   const query = new URLSearchParams({
     sex: '1', sort: 'times', mail_start: date.iso, mail_end: date.iso,
     code: '', frm: '', created_at_start: date.iso, created_at_end: date.iso,
-    disp_type: '', folder_rcv_source: 'point', sum: '集計',
+    disp_type: '', folder_rcv_source: 'point', account_scope: 'all', sum: '集計',
   });
   const response = await networkRetry('log.digicafe.jp: today results', () => client.get(`${REPORT_URL}?${query}`, { headers: REQUEST_HEADERS }));
   if (response.status !== 200) throw new Error(`管理画面データの取得に失敗しました（HTTP ${response.status}）。`);
