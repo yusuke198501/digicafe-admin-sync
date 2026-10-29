@@ -239,6 +239,31 @@ export function carryForwardZeros(row, previous, warn = message => console.warn(
   if (copied.length) warn(`WARNING: 取得値0のため同日直前 ${previous[0]} の値を補完: ${copied.join(',')}列`);
   return result;
 }
+/** Refresh only the three graph controls after a verified, current snapshot. */
+export function graphControlsForSnapshot(timestamp) {
+  const bucket = slot(timestamp);
+  if (!bucket) throw new Error('グラフ更新日時が不正です。');
+  const date = timestamp.slice(0,10);
+  const midnight = Date.parse(date + 'T00:00:00Z');
+  if (!Number.isFinite(midnight) || new Date(midnight).toISOString().slice(0,10) !== date ||
+      Number(bucket.slice(11,13)) > 23 || Number(timestamp.slice(14,16)) > 59) {
+    throw new Error('グラフ更新日時が不正です。');
+  }
+  return [
+    {range:"'グラフ'!B3",values:[[midnight / 86400000 + 25569]]},
+    {range:"'グラフ'!E3",values:[['=B3-1']]},
+    {range:"'グラフ'!K3",values:[[(Number(bucket.slice(11,13))*60 + Number(bucket.slice(14,16))) / 1440]]}
+  ];
+}
+export async function refreshGraphSnapshotTime(sheets, spreadsheetId, timestamp) {
+  // One sparse request: no intervening cells, formatting, or validation are changed.
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId,
+    requestBody:{valueInputOption:'USER_ENTERED',data:graphControlsForSnapshot(timestamp)}
+  });
+  console.log('グラフの対象日・比較日・時刻を更新: ' + slot(timestamp));
+}
+
 async function main() {
   const start = new Date(), timestamp = jstTimestamp(start), date = timestamp.slice(0,10);
   if (process.env.LEAVE_PROBE_ONLY === 'true') {
@@ -359,6 +384,7 @@ async function main() {
   while (verified.length < row.length && row.slice(verified.length).every(v => v === '')) verified.push('');
   if (JSON.stringify(verified) !== JSON.stringify(row)) throw new Error('追記後の照合に失敗しました。');
   console.log(JSON.stringify({range,row}));
+  await refreshGraphSnapshotTime(sheets,spreadsheetId,timestamp);
   try { await refreshGa4Chart(sheets,spreadsheetId); } catch { console.warn('WARNING: GA4 chart refresh deferred; snapshot saved.'); }
   try { await refreshAgeChart(sheets,spreadsheetId); } catch { console.warn('WARNING: 年確数グラフの系列確認を次回に持ち越します。記録は完了しています。'); }
 }
