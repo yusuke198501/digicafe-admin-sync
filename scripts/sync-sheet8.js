@@ -163,7 +163,7 @@ export function cohortMailUrl(date, previousMonth = false) {
   const priorStart = new Date(Date.UTC(day.getUTCFullYear(),day.getUTCMonth()-1,1));
   const priorEnd = new Date(monthStart.getTime()-86400000);
   const url = new URL('mailnum_uf',BASE);
-  url.search = new URLSearchParams({sex:'0',sort:'times',mail_start:date,mail_end:date,code:'',frm:'',created_at_start:(previousMonth?priorStart:monthStart).toISOString().slice(0,10),created_at_end:previousMonth?priorEnd.toISOString().slice(0,10):date,is_create:'1',disp_type:'',folder_rcv_source:'point',sum:'集計'});
+  url.search = new URLSearchParams({sex:'0',sort:'times',mail_start:date,mail_end:date,code:'',frm:'',created_at_start:(previousMonth?priorStart:monthStart).toISOString().slice(0,10),created_at_end:previousMonth?priorEnd.toISOString().slice(0,10):date,is_create:'1',disp_type:'',folder_rcv_source:'point',account_scope:'all',sum:'集計'});
   return url.href;
 }
 export function parseCohortMail(html) {
@@ -324,7 +324,7 @@ async function main() {
     return get(url);
   }
   const mailUrl = new URL('mailnum_uf', BASE);
-  mailUrl.search = new URLSearchParams({sex:'1',sort:'times',mail_start:date,mail_end:date,created_at_start:date,created_at_end:date,folder_rcv_source:'point',sum:'集計'});
+  mailUrl.search = new URLSearchParams({sex:'1',sort:'times',mail_start:date,mail_end:date,created_at_start:date,created_at_end:date,folder_rcv_source:'point',account_scope:'all',sum:'集計'});
   // Independent metric groups run concurrently. One missing table, failed
   // request, or authentication failure cannot abort the remaining metrics.
   // Share the existing female report request; no additional heavy aggregation.
