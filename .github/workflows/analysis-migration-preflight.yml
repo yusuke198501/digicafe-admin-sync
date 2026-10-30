@@ -1,0 +1,33 @@
+name: Analysis workbook migration preflight
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Verify migration permissions without copying data
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+        run: |
+          node --input-type=module <<'NODE'
+          import {google} from 'googleapis';
+          const credentials=JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
+          console.log('Share destination as Editor with: '+credentials.client_email);
+          const sheets=google.sheets({version:'v4',auth:new google.auth.GoogleAuth({credentials,scopes:['https://www.googleapis.com/auth/spreadsheets']})});
+          for(const [label,spreadsheetId] of [['source','11Zoev9Sptv3x6kxx00i8BoVk8jaWPNcKiuJ_oh_xde8'],['destination','1gsDZpoK1WZ4iZN4F8AqCdRw2EJotpixposi8KgIy4gU']]){
+            try{
+              const {data}=await sheets.spreadsheets.get({spreadsheetId,fields:'spreadsheetId,properties(title,timeZone),sheets(properties(sheetId,title))'});
+              console.log(label+': '+JSON.stringify(data));
+              if(label==='destination')await sheets.spreadsheets.batchUpdate({spreadsheetId,requestBody:{requests:[{updateSpreadsheetProperties:{properties:{timeZone:data.properties.timeZone},fields:'timeZone'}}]}});
+              console.log(label+': '+(label==='destination'?'EDIT_OK':'READ_OK'));
+            }catch(e){console.log(label+': PERMISSION_CHECK_FAILED status='+(e.response?.status??e.code??'unknown'));process.exitCode=1;}
+          }
+          NODE
