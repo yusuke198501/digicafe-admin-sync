@@ -1,0 +1,25 @@
+name: Analysis GA4 read-only check
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Check existing Analytics authorization without spreadsheet writes
+        env:
+          GA4_OAUTH_JSON: ${{ secrets.GA4_OAUTH_JSON }}
+          GA4_PROBE_ONLY: 'false'
+        run: |
+          node --input-type=module <<'NODE'
+          import {fetchGa4Realtime} from './scripts/ga4-realtime.mjs';
+          try{console.log('GA4_ACTIVE_MALE_5_MIN='+await fetchGa4Realtime());}
+          catch(e){console.log(/^GA4_[A-Z0-9_]+$/.test(e.message)?e.message:'GA4_REQUEST_FAILED');process.exitCode=1;}
+          NODE
