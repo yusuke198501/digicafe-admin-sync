@@ -83,8 +83,8 @@ test('successful zero and valid values remain unchanged; malformed values become
   for (const values of [[undefined],[NaN],[-1],[],['12']]) assert.deepEqual(await metricOrZero('test',1,async()=>values,()=>{}),[0]);
 });
 test('column-based destination ignores renamed labels, preserves sheet identity check',()=>{
-  assert.doesNotThrow(()=>validateSnapshotDestination([{properties:{sheetId:1467610996,title:'シート8',gridProperties:{columnCount:27}}}]));
-  for (const properties of [{sheetId:0,title:'シート8',gridProperties:{columnCount:27}},{sheetId:1467610996,title:'別シート',gridProperties:{columnCount:27}},{sheetId:1467610996,title:'シート8',gridProperties:{columnCount:11}}]) assert.throws(()=>validateSnapshotDestination([{properties}]));
+  assert.doesNotThrow(()=>validateSnapshotDestination([{properties:{sheetId:1467610996,title:'シート8',gridProperties:{columnCount:29}}}]));
+  for (const properties of [{sheetId:0,title:'シート8',gridProperties:{columnCount:29}},{sheetId:1467610996,title:'別シート',gridProperties:{columnCount:29}},{sheetId:1467610996,title:'シート8',gridProperties:{columnCount:11}}]) assert.throws(()=>validateSnapshotDestination([{properties}]));
 });
 test('zero metrics copy same-day previous values column by column without replacing nonzero values',()=>{
   const row=['2026-10-19 10:05:00',0,12,0,0],previous=['2026-10-19 10:00:00',8,20,0,55],warnings=[];
@@ -162,7 +162,7 @@ test('21-column row places cohort sales in P/Q and T/U and prior mail in R/S',()
   assert.throws(()=>validateSnapshotDestination([{properties:{sheetId:1467610996,title:'シート8',gridProperties:{columnCount:21}}}]));
   assert.throws(()=>validateSnapshotDestination([{properties:{sheetId:1467610996,title:'シート8',gridProperties:{columnCount:22}}}]));
   assert.throws(()=>validateSnapshotDestination([{properties:{sheetId:1467610996,title:'シート8',gridProperties:{columnCount:23}}}]));
-  assert.doesNotThrow(()=>validateSnapshotDestination([{properties:{sheetId:1467610996,title:'シート8',gridProperties:{columnCount:27}}}]));
+  assert.doesNotThrow(()=>validateSnapshotDestination([{properties:{sheetId:1467610996,title:'シート8',gridProperties:{columnCount:29}}}]));
 });
 test('zero carry-forward uses all twenty updated columns without mixing R/S and P/Q',()=>{
   const previous=['2026-10-20 14:00:00',...Array.from({length:20},(_,i)=>i+1)];
