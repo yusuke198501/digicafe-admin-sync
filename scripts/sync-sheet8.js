@@ -144,6 +144,29 @@ export function memberQuery(html, date, type) {
   q.set('sum','この条件で集計');
   return q;
 }
+// Last-login membership is captured prospectively, rather than reconstructed later.
+export function cohortLoginQuery(html, date, previousMonth = false) {
+  const day = new Date(`${date}T00:00:00Z`);
+  if (!Number.isFinite(day.getTime()) || day.toISOString().slice(0,10) !== date) throw new Error('集計日が不正です。');
+  const month = day.getUTCMonth() - (previousMonth ? 1 : 0);
+  const start = new Date(Date.UTC(day.getUTCFullYear(),month,1));
+  const end = new Date(Date.UTC(day.getUTCFullYear(),month+1,0));
+  const q = memberQuery(html,date,'login');
+  q.set('is_paying','0'); // Both paying and non-paying males.
+  q.set('regist_start',start.toISOString().slice(0,10));
+  q.set('regist_end',end.toISOString().slice(0,10));
+  return q;
+}
+export async function cohortLoginOrBlank(collect, warn = message => console.warn(message)) {
+  try {
+    const count = await collect();
+    if (!Number.isSafeInteger(count) || count < 0) throw new Error();
+    return count;
+  } catch {
+    warn('WARNING: 登録月別ログイン人数の取得に失敗しました。未取得として空欄にします。');
+    return '';
+  }
+}
 function required(name) { if (!process.env[name]) throw new Error(`${name} is missing`); return process.env[name]; }
 export function registrationUrl(date) {
   const url=new URL('kaidan',BASE);
@@ -331,6 +354,13 @@ async function main() {
   const mailHtml = partnerGet(mailUrl.href);
   mailHtml.catch(() => {});
   const formHtml = partnerGet(new URL('list', BASE).href).catch(()=>null);
+  const cohortLoginPromise = Promise.all([false,true].map(prior => cohortLoginOrBlank(async()=>{
+    const html = await formHtml;
+    if (!html) throw new Error();
+    const url = new URL('list',BASE);
+    url.search = cohortLoginQuery(html,date,prior);
+    return parseMembers(await partnerGet(url.href));
+  })));
   async function memberCount(type) {
     const html = await formHtml;
     if (!html) throw new Error('会員検索フォームがありません。');
@@ -370,13 +400,16 @@ async function main() {
   const [paymentPoints] = await paymentPromise;
   const [voluntaryLeaves] = await leavePromise;
   const ga4ActiveUsers = await ga4Promise;
+  const cohortLogins = await cohortLoginPromise;
   if (!collectionWindowValid(start,new Date())) throw new Error('取得が4分以上経過、または日付が変わりました。追記しません。');
   const row = carryForwardZeros(buildSnapshotRow({timestamp,sent,received,senders,logins,payers,amount,broadcastSent,broadcastReceived,maleReceived,maleReceivers,clicks,registrations,currentDau,currentReceived,currentCohortPayers,currentCohortAmount,priorDau,priorReceived,priorCohortPayers,priorCohortAmount,allUsagePt,paymentPoints,voluntaryLeaves,ageVerifications}),previous);
   // Realtime is not cumulative: preserve genuine zero and never copy stale values.
   row.push(ga4ActiveUsers);
   // Apply the existing same-day zero fallback only to AA, never to realtime GA4.
   row.push(carryForwardZeros([...row.slice(0,25),0,allReceived],previous)[26]);
-  const result = await sheets.spreadsheets.values.append({spreadsheetId,range:`${SHEET}!A:AA`,valueInputOption:'RAW',insertDataOption:'INSERT_ROWS',requestBody:{values:[row]}});
+  // AB/AC preserve real zero; unavailable values are blank, never carried forward.
+  row.push(...cohortLogins);
+  const result = await sheets.spreadsheets.values.append({spreadsheetId,range:`${SHEET}!A:AC`,valueInputOption:'RAW',insertDataOption:'INSERT_ROWS',requestBody:{values:[row]}});
   const range = result.data.updates?.updatedRange;
   if (!range) throw new Error('追記結果の範囲がありません。');
   const read = (await sheets.spreadsheets.values.get({spreadsheetId,range,valueRenderOption:'UNFORMATTED_VALUE'})).data.values;
