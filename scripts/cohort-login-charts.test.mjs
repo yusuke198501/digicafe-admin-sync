@@ -7,7 +7,7 @@ const book={sheets:[{properties:{sheetId:GRAPH_ID,title:'グラフ'},charts:[fir
 test('only the two new metrics get charts and source ranges remain aligned',()=>{
  const req=chartRequests(book),added=req.filter(r=>r.addChart).map(r=>r.addChart.chart);
  assert.equal(added.length,2);assert.deepEqual(added.map(c=>c.spec.title),METRICS.map(m=>m.name+'の推移'));
- for(const c of added){assert.equal(c.spec.fontName,'Arial');assert.equal(c.spec.basicChart.legendPosition,'BOTTOM_LEGEND');assert.equal(c.spec.basicChart.headerCount,1);assert.equal(c.spec.hiddenDimensionStrategy,'SHOW_ALL');assert.equal(c.spec.basicChart.series.length,5);assert.equal(c.position.overlayPosition.anchorCell.rowIndex,182);assert.equal(c.position.overlayPosition.offsetYPixels,340);}
+ for(const c of added){assert.equal(c.spec.fontName,'Arial');assert.equal(c.spec.basicChart.legendPosition,'BOTTOM_LEGEND');assert.equal(c.spec.basicChart.headerCount,1);assert.equal(c.spec.hiddenDimensionStrategy,'SHOW_ALL');assert.equal(c.spec.basicChart.series.length,5);assert.equal(c.position.overlayPosition.anchorCell.rowIndex,199);assert.equal(c.position.overlayPosition.offsetYPixels,0);}
  assert.equal(added[1].position.overlayPosition.offsetXPixels,750);
  assert.ok(!req.some(r=>r.deleteSheet||r.deleteDimension||r.insertDimension));
  assert.ok(!req.some(r=>r.updateEmbeddedObjectPosition?.objectId===2027820698));
@@ -44,10 +44,10 @@ test('layout accounts for hidden rows and pixel offsets, and repairs only owned 
  const rows=Array.from({length:2200},()=>({pixelSize:20}));
  for(let i=40;i<180;i++)rows[i].hiddenByUser=true;
  const added=chartRequests(fixture,rows).filter(r=>r.addChart).map(r=>r.addChart.chart);
- assert.equal(added[0].position.overlayPosition.anchorCell.rowIndex,38);
- assert.equal(added[0].position.overlayPosition.offsetYPixels,2340);
+ assert.equal(added[0].position.overlayPosition.anchorCell.rowIndex,295);
+ assert.equal(added[0].position.overlayPosition.offsetYPixels,0);
  fixture.sheets[0].charts.push(...added);
  const repaired=chartRequests(fixture,rows).filter(r=>r.updateEmbeddedObjectPosition&&METRICS.some(m=>m.chartId===r.updateEmbeddedObjectPosition.objectId));
  assert.equal(repaired.length,2);
- assert.equal(repaired[0].updateEmbeddedObjectPosition.newPosition.overlayPosition.offsetYPixels,2340);
+ assert.equal(repaired[0].updateEmbeddedObjectPosition.newPosition.overlayPosition.offsetYPixels,0);
 });

@@ -1,8 +1,8 @@
 export const GRAPH_ID = 174166888;
 export const HELPER_ID = 1926103001;
 export const HELPER_TITLE = '_登録月別ログイングラフ';
-export const VERSION = 'cohort-logins-v2';
-export const SUBTITLE = '実線：実績／青い破線：当日予測（比較日基準）';
+export const VERSION = 'cohort-logins-v3';
+export const SUBTITLE = '実線：実績／青い破線：予測（比較日基準）';
 export const METRICS = [
   {name:'当月登録者ログイン数',column:'AB',chartId:1926103002,comparisonRow:37,offset:0},
   {name:'２ヶ月目登録者ログイン数',column:'AC',chartId:1926103003,comparisonRow:38,offset:10}
@@ -72,7 +72,18 @@ export function chartRequests(book,rowMetadata=[]) {
     return !best||bottom>best.bottom?{p,bottom}:best;
   },null);
   if(!bottomChart)throw Error('既存グラフの配置を確認できません。');
-  const newPosition={...template.position.overlayPosition,anchorCell:{...bottomChart.p.anchorCell,rowIndex:bottomChart.p.anchorCell.rowIndex+shift,columnIndex:0},offsetYPixels:(bottomChart.p.offsetYPixels??0)+(bottomChart.p.heightPixels??300)+40,widthPixels:730,heightPixels:300};
+  const targetTop=bottomChart.bottom+40;
+  let anchorRow=0,anchorTop=0;
+  if(rowMetadata.length){
+    for(let i=0;i<rowMetadata.length;i++){
+      const r=rowMetadata[i],height=r.hiddenByUser||r.hiddenByFilter?0:(r.pixelSize??20);
+      if(height>0&&anchorTop+height>targetTop){anchorRow=i;break;}
+      anchorTop+=height;
+      anchorRow=i+1;
+    }
+    if(anchorRow>=rowMetadata.length){const extra=Math.floor((targetTop-anchorTop)/20);anchorRow+=extra;anchorTop+=extra*20;}
+  }else{anchorRow=Math.floor(targetTop/20);anchorTop=anchorRow*20;}
+  const newPosition={...template.position.overlayPosition,anchorCell:{sheetId:GRAPH_ID,rowIndex:anchorRow,columnIndex:0},offsetYPixels:Math.round(targetTop-anchorTop),widthPixels:730,heightPixels:300};
   requests.push({updateCells:{start:{sheetId:HELPER_ID,rowIndex:0,columnIndex:0},rows:helperRows(),fields:'userEnteredValue'}});
   for(const m of METRICS){
     const existing=charts.find(c=>c.chartId===m.chartId);
