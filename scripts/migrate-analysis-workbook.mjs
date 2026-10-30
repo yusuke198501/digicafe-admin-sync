@@ -120,6 +120,18 @@ export function valueRows(rows){
   const normalized=rows.map(r=>{const values=(r.values??[]).map(c=>c.userEnteredValue??null);while(values.length&&values.at(-1)===null)values.pop();return values;});
   while(normalized.length&&!normalized.at(-1).length)normalized.pop();return normalized;
 }
+export function memberWriteRequests(sheetId,startRow,rows,maxBytes=1300000){
+  const result=[];let group=[],groupStart=startRow,bytes=0;
+  const fields='userEnteredValue,userEnteredFormat,textFormatRuns,note,dataValidation';
+  const flush=()=>{if(group.length){result.push({updateCells:{start:{sheetId,rowIndex:groupStart,columnIndex:0},rows:group,fields}});group=[];bytes=0;}};
+  rows.forEach((row,r)=>{
+    const size=Buffer.byteLength(JSON.stringify(row));
+    if(size<=maxBytes){if(bytes+size>maxBytes)flush();if(!group.length)groupStart=startRow+r;group.push(row);bytes+=size;return;}
+    flush();let cells=[],first=0,partBytes=0;
+    const part=()=>{if(cells.length)result.push({updateCells:{start:{sheetId,rowIndex:startRow+r,columnIndex:first},rows:[{values:cells}],fields}});cells=[];partBytes=0;};
+    (row.values??[]).forEach((cell,c)=>{const n=Buffer.byteLength(JSON.stringify(cell));if(partBytes+n>maxBytes)part();if(!cells.length)first=c;cells.push(cell);partBytes+=n;});part();
+  });flush();return result;
+}
 async function copyMembersInChunks(sheets,source){
   const id=940331649,title='シート12',original=source.sheets.find(s=>s.properties.sheetId===id);
   const target=(await sheets.spreadsheets.get({spreadsheetId:DESTINATION,fields:'sheets(properties(sheetId,title))'})).data;
@@ -142,8 +154,7 @@ async function copyMembersInChunks(sheets,source){
     // Split large message rows by columns; no request exceeds roughly 1.5 MB.
     let requests=[],bytes=0;
     async function flush(){if(requests.length){await batch(requests);await pause();requests=[];bytes=0;}}
-    for(let r=0;r<rows.length;r++)for(let c=0;c<(rows[r].values??[]).length;c+=10){
-      const cells=rows[r].values.slice(c,c+10),request={updateCells:{start:{sheetId:id,rowIndex:start+r,columnIndex:c},rows:[{values:cells}],fields:'userEnteredValue,userEnteredFormat,textFormatRuns,note,dataValidation'}};
+    for(const request of memberWriteRequests(id,start,rows)){
       const size=Buffer.byteLength(JSON.stringify(request));if(bytes+size>1500000)await flush();requests.push(request);bytes+=size;
     }
     await flush();

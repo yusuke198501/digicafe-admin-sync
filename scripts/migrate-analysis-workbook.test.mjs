@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {formulaRequests,validateSource,PLAN,SOURCE,DESTINATION,migrate,valueRows} from './migrate-analysis-workbook.mjs';
+import {formulaRequests,validateSource,PLAN,SOURCE,DESTINATION,migrate,valueRows,memberWriteRequests} from './migrate-analysis-workbook.mjs';
 test('migration source and destination are distinct and all eight identities are exact',()=>{
  assert.notEqual(SOURCE,DESTINATION);
  const source={spreadsheetId:SOURCE,sheets:PLAN.map(([sheetId,title])=>({properties:{sheetId,title}}))};
@@ -33,4 +33,10 @@ test('destination name or ID collisions abort before any mutation',async()=>{
 });
 test('chunk verification preserves real zero and empty text while ignoring format-only trailing cells',()=>{
  assert.deepEqual(valueRows([{values:[{userEnteredValue:{numberValue:0}},{userEnteredValue:{stringValue:''}},{userEnteredFormat:{wrapStrategy:'CLIP'}}]},{values:[{}]}]),[[{numberValue:0},{stringValue:''}]]);
+});
+test('small member rows use one contiguous write; oversized rows split without losing cells',()=>{
+ const rows=Array.from({length:25},(_,i)=>({values:[{userEnteredValue:{stringValue:'会員'+i}}]}));
+ const compact=memberWriteRequests(940331649,100,rows);assert.equal(compact.length,1);assert.equal(compact[0].updateCells.start.rowIndex,100);assert.deepEqual(compact[0].updateCells.rows,rows);
+ const large={values:Array.from({length:4},(_,i)=>({userEnteredValue:{stringValue:'あ'.repeat(60)+i}}))};
+ const split=memberWriteRequests(940331649,2,[large],300);assert.equal(split.length,4);assert.deepEqual(split.map(r=>r.updateCells.start.columnIndex),[0,1,2,3]);assert.deepEqual(split.flatMap(r=>r.updateCells.rows[0].values),large.values);
 });
