@@ -39,6 +39,7 @@ jobs:
         env:
           COHORT_GRAPH_SETUP_ONLY: ${{ inputs.cohort_graph_setup }}
           GA4_PROBE_ONLY: ${{ inputs.ga4_probe }}
+          GA4_AUTH_MODE: 'service_account'
           GA4_OAUTH_JSON: ${{ secrets.GA4_OAUTH_JSON }}
           PAYMENT_PROBE_ONLY: ${{ inputs.payment_probe }}
           LEAVE_PROBE_ONLY: ${{ inputs.leave_probe }}
