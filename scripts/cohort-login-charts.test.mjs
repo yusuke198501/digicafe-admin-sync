@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {chartRequests,helperRows,chartSpec,METRICS,GRAPH_ID,HELPER_ID,snapshotFormula,refreshCohortLoginCharts} from './cohort-login-charts.mjs';
+import {chartRequests,helperRows,chartSpec,METRICS,GRAPH_ID,HELPER_ID,snapshotFormula,refreshCohortLoginCharts,SUBTITLE} from './cohort-login-charts.mjs';
 const template={chartId:1926102601,spec:{title:'全体受信数の推移',fontName:'Arial',basicChart:{chartType:'LINE',legendPosition:'BOTTOM_LEGEND'}},position:{overlayPosition:{anchorCell:{sheetId:GRAPH_ID,rowIndex:180,columnIndex:0},widthPixels:730,heightPixels:300}}};
 const first={...template,chartId:123,position:{overlayPosition:{...template.position.overlayPosition,anchorCell:{sheetId:GRAPH_ID,rowIndex:36,columnIndex:0}}}};
 const book={sheets:[{properties:{sheetId:GRAPH_ID,title:'グラフ'},charts:[first,template,{chartId:2027820698,position:{overlayPosition:{anchorCell:{sheetId:GRAPH_ID,rowIndex:8,columnIndex:8},heightPixels:500}}}]}]};
 test('only the two new metrics get charts and source ranges remain aligned',()=>{
  const req=chartRequests(book),added=req.filter(r=>r.addChart).map(r=>r.addChart.chart);
  assert.equal(added.length,2);assert.deepEqual(added.map(c=>c.spec.title),METRICS.map(m=>m.name+'の推移'));
- for(const c of added){assert.equal(c.spec.fontName,'Arial');assert.equal(c.spec.basicChart.legendPosition,'BOTTOM_LEGEND');assert.equal(c.spec.basicChart.headerCount,1);assert.equal(c.spec.hiddenDimensionStrategy,'SHOW_ALL');assert.equal(c.spec.basicChart.series.length,5);assert.ok(c.position.overlayPosition.anchorCell.rowIndex>198);}
+ for(const c of added){assert.equal(c.spec.fontName,'Arial');assert.equal(c.spec.basicChart.legendPosition,'BOTTOM_LEGEND');assert.equal(c.spec.basicChart.headerCount,1);assert.equal(c.spec.hiddenDimensionStrategy,'SHOW_ALL');assert.equal(c.spec.basicChart.series.length,5);assert.equal(c.position.overlayPosition.anchorCell.rowIndex,182);assert.equal(c.position.overlayPosition.offsetYPixels,340);}
  assert.equal(added[1].position.overlayPosition.offsetXPixels,750);
  assert.ok(!req.some(r=>r.deleteSheet||r.deleteDimension||r.insertDimension));
  assert.ok(!req.some(r=>r.updateEmbeddedObjectPosition?.objectId===2027820698));
@@ -34,6 +34,20 @@ test('writes are scoped to the owned helper and the requested graph additions',(
  assert.throws(()=>chartRequests({sheets:[...book.sheets,{properties:{sheetId:HELPER_ID,title:'他の計算'}}]}));
 });
 test('already installed charts perform no writes on regular five-minute runs',async()=>{
- let writes=0;const sheets={spreadsheets:{get:async()=>({data:{sheets:[{properties:{sheetId:GRAPH_ID,title:'グラフ'},charts:METRICS.map(m=>({chartId:m.chartId,spec:{title:m.name+'の推移'}}))},{properties:{sheetId:HELPER_ID,title:'_登録月別ログイングラフ'}}]}}),batchUpdate:async()=>writes++}};
+ let writes=0;const sheets={spreadsheets:{get:async()=>({data:{sheets:[{properties:{sheetId:GRAPH_ID,title:'グラフ'},charts:METRICS.map(m=>({chartId:m.chartId,spec:{title:m.name+'の推移',subtitle:SUBTITLE}}))},{properties:{sheetId:HELPER_ID,title:'_登録月別ログイングラフ'}}]}}),batchUpdate:async()=>writes++}};
  await refreshCohortLoginCharts(sheets,'test');assert.equal(writes,0);
+});
+
+test('layout accounts for hidden rows and pixel offsets, and repairs only owned charts',()=>{
+ const charts=[{...first,position:{overlayPosition:{...first.position.overlayPosition,offsetYPixels:2000}}},template];
+ const fixture={sheets:[{...book.sheets[0],charts}]};
+ const rows=Array.from({length:2200},()=>({pixelSize:20}));
+ for(let i=40;i<180;i++)rows[i].hiddenByUser=true;
+ const added=chartRequests(fixture,rows).filter(r=>r.addChart).map(r=>r.addChart.chart);
+ assert.equal(added[0].position.overlayPosition.anchorCell.rowIndex,38);
+ assert.equal(added[0].position.overlayPosition.offsetYPixels,2340);
+ fixture.sheets[0].charts.push(...added);
+ const repaired=chartRequests(fixture,rows).filter(r=>r.updateEmbeddedObjectPosition&&METRICS.some(m=>m.chartId===r.updateEmbeddedObjectPosition.objectId));
+ assert.equal(repaired.length,2);
+ assert.equal(repaired[0].updateEmbeddedObjectPosition.newPosition.overlayPosition.offsetYPixels,2340);
 });

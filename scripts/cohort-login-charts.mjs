@@ -1,7 +1,8 @@
 export const GRAPH_ID = 174166888;
 export const HELPER_ID = 1926103001;
 export const HELPER_TITLE = '_登録月別ログイングラフ';
-export const VERSION = 'cohort-logins-v1';
+export const VERSION = 'cohort-logins-v2';
+export const SUBTITLE = '実線：実績／青い破線：当日予測（比較日基準）';
 export const METRICS = [
   {name:'当月登録者ログイン数',column:'AB',chartId:1926103002,comparisonRow:37,offset:0},
   {name:'２ヶ月目登録者ログイン数',column:'AC',chartId:1926103003,comparisonRow:38,offset:10}
@@ -47,9 +48,9 @@ export function helperRows() {
 export function chartSpec(template,m) {
   const colors=[[66,133,244],[153,153,153],[153,0,255],[66,133,244],[255,109,1]];
   const range=c=>({sheetId:HELPER_ID,startRowIndex:1,endRowIndex:51,startColumnIndex:c,endColumnIndex:c+1});
-  return {...template,title:m.name+'の推移',subtitle:'実線＝実績／青い破線＝当日予測（比較日基準）',hiddenDimensionStrategy:'SHOW_ALL',basicChart:{...template.basicChart,chartType:'LINE',headerCount:1,interpolateNulls:false,axis:[{position:'BOTTOM_AXIS',title:'時刻'},{position:'LEFT_AXIS',title:'人'}],domains:[{domain:{sourceRange:{sources:[range(m.offset)]}}}],series:colors.map((rgb,i)=>({series:{sourceRange:{sources:[range(m.offset+i+1)]}},targetAxis:'LEFT_AXIS',colorStyle:{rgbColor:{red:rgb[0]/255,green:rgb[1]/255,blue:rgb[2]/255}},lineStyle:{width:i===0?4:2,type:i===3?'MEDIUM_DASHED':'SOLID'},pointStyle:{size:0}}))}};
+  return {...template,title:m.name+'の推移',subtitle:SUBTITLE,hiddenDimensionStrategy:'SHOW_ALL',basicChart:{...template.basicChart,chartType:'LINE',headerCount:1,interpolateNulls:false,axis:[{position:'BOTTOM_AXIS',title:'時刻'},{position:'LEFT_AXIS',title:'人'}],domains:[{domain:{sourceRange:{sources:[range(m.offset)]}}}],series:colors.map((rgb,i)=>({series:{sourceRange:{sources:[range(m.offset+i+1)]}},targetAxis:'LEFT_AXIS',colorStyle:{rgbColor:{red:rgb[0]/255,green:rgb[1]/255,blue:rgb[2]/255}},lineStyle:{width:i===0?4:2,type:i===3?'MEDIUM_DASHED':'SOLID'},pointStyle:{size:0}}))}};
 }
-export function chartRequests(book) {
+export function chartRequests(book,rowMetadata=[]) {
   const g=book.sheets?.find(s=>s.properties?.sheetId===GRAPH_ID);
   if(g?.properties.title!=='グラフ')throw Error('グラフの書き込み先が一致しません。');
   const charts=g.charts??[],template=charts.find(c=>c.chartId===1926102601)??charts.find(c=>c.chartId===1702630169);
@@ -59,18 +60,27 @@ export function chartRequests(book) {
   if(helper&&helper.properties.sheetId!==HELPER_ID)throw Error('計算用シートを確認できません。');
   const requests=[];
   if(!helper)requests.push({addSheet:{properties:{sheetId:HELPER_ID,title:HELPER_TITLE,hidden:true,gridProperties:{rowCount:60,columnCount:20}}}});
-  const small=charts.filter(c=>c.chartId!==2027820698&&c.position?.overlayPosition?.anchorCell?.rowIndex>=8);
+  const small=charts.filter(c=>!METRICS.some(m=>m.chartId===c.chartId)&&c.chartId!==2027820698&&c.position?.overlayPosition?.anchorCell?.rowIndex>=8);
   const top=Math.min(...small.map(c=>c.position.overlayPosition.anchorCell.rowIndex));
   const shift=Math.max(0,38-top);
   if(shift)for(const c of small){const p=c.position.overlayPosition;requests.push({updateEmbeddedObjectPosition:{objectId:c.chartId,newPosition:{overlayPosition:{...p,anchorCell:{...p.anchorCell,rowIndex:p.anchorCell.rowIndex+shift}}},fields:'anchorCell'}});}
-  const bottom=Math.max(...small.map(c=>c.position.overlayPosition.anchorCell.rowIndex+Math.ceil((c.position.overlayPosition.heightPixels??300)/20)))+shift+3;
+  // Hidden rows and existing pixel offsets make row-count estimates unsafe.
+  const rowTop=i=>rowMetadata.slice(0,i).reduce((sum,r)=>sum+(r.hiddenByUser||r.hiddenByFilter?0:(r.pixelSize??20)),0)+Math.max(0,i-rowMetadata.length)*20;
+  const bottomChart=small.reduce((best,c)=>{
+    const p=c.position.overlayPosition;
+    const bottom=rowTop(p.anchorCell.rowIndex+shift)+(p.offsetYPixels??0)+(p.heightPixels??300);
+    return !best||bottom>best.bottom?{p,bottom}:best;
+  },null);
+  if(!bottomChart)throw Error('既存グラフの配置を確認できません。');
+  const newPosition={...template.position.overlayPosition,anchorCell:{...bottomChart.p.anchorCell,rowIndex:bottomChart.p.anchorCell.rowIndex+shift,columnIndex:0},offsetYPixels:(bottomChart.p.offsetYPixels??0)+(bottomChart.p.heightPixels??300)+40,widthPixels:730,heightPixels:300};
   requests.push({updateCells:{start:{sheetId:HELPER_ID,rowIndex:0,columnIndex:0},rows:helperRows(),fields:'userEnteredValue'}});
   for(const m of METRICS){
     const existing=charts.find(c=>c.chartId===m.chartId);
     if(existing&&existing.spec.title!==m.name+'の推移')throw Error('グラフIDが使用中です。');
     const spec=chartSpec(template.spec,m);
-    if(existing)requests.push({updateChartSpec:{chartId:m.chartId,spec}});
-    else requests.push({addChart:{chart:{chartId:m.chartId,spec,position:{overlayPosition:{...template.position.overlayPosition,anchorCell:{sheetId:GRAPH_ID,rowIndex:bottom,columnIndex:0},offsetXPixels:(m.offset?1:0)*750,offsetYPixels:0,widthPixels:730,heightPixels:300}}}}});
+    const position={overlayPosition:{...newPosition,offsetXPixels:(m.offset?1:0)*750}};
+    if(existing)requests.push({updateChartSpec:{chartId:m.chartId,spec}},{updateEmbeddedObjectPosition:{objectId:m.chartId,newPosition:position,fields:'anchorCell,offsetXPixels,offsetYPixels,widthPixels,heightPixels'}});
+    else requests.push({addChart:{chart:{chartId:m.chartId,spec,position}}});
   }
   const comparison=METRICS.map(m=>{
     const r=m.comparisonRow,predict=col(m.offset+4),base=col(m.offset+7),helper=`'${HELPER_TITLE}'!`;
@@ -82,17 +92,19 @@ export function chartRequests(book) {
   return requests;
 }
 export async function refreshCohortLoginCharts(sheets,spreadsheetId) {
-  const initial=(await sheets.spreadsheets.get({spreadsheetId,fields:'sheets(properties(sheetId,title),charts(chartId,spec(title)))'})).data;
+  const initial=(await sheets.spreadsheets.get({spreadsheetId,fields:'sheets(properties(sheetId,title),charts(chartId,spec(title,subtitle)))'})).data;
   const g=initial.sheets?.find(s=>s.properties.sheetId===GRAPH_ID),helper=initial.sheets?.find(s=>s.properties.title===HELPER_TITLE);
-  if(helper?.properties.sheetId===HELPER_ID&&METRICS.every(m=>g?.charts?.some(c=>c.chartId===m.chartId&&c.spec.title===m.name+'の推移')))return;
+  if(helper?.properties.sheetId===HELPER_ID&&METRICS.every(m=>g?.charts?.some(c=>c.chartId===m.chartId&&c.spec.title===m.name+'の推移'&&c.spec.subtitle===SUBTITLE)))return;
   const book=(await sheets.spreadsheets.get({spreadsheetId,fields:'sheets(properties(sheetId,title),charts(chartId,spec,position))'})).data;
   const existing=(await sheets.spreadsheets.get({spreadsheetId,ranges:["'グラフ'!L8","'グラフ'!A37:J38"],includeGridData:true,fields:'sheets(data(startRow,startColumn,rowData(values(userEnteredValue,dataValidation))))'})).data;
   const grids=existing.sheets?.flatMap(s=>s.data??[])??[];
   const dropdown=grids.find(d=>d.startRow===7&&d.startColumn===11)?.rowData?.[0]?.values?.[0]?.dataValidation;
   if(dropdown?.condition?.type!=='ONE_OF_LIST')throw Error('拡大表示の選択肢を確認できません。');
   const target=grids.find(d=>d.startRow===36&&(!d.startColumn||d.startColumn===0));
-  for(let i=0;i<2;i++){const values=target?.rowData?.[i]?.values??[];if(values[0]?.userEnteredValue?.stringValue&&values[0].userEnteredValue.stringValue!==METRICS[i].name)throw Error('比較表の追加先が使用中です。');if(values.slice(1).some(v=>v.userEnteredValue))throw Error('比較表の追加先に既存データがあります。');}
-  const requests=chartRequests(book),names=new Set(dropdown.condition.values.map(v=>v.userEnteredValue));
+  for(let i=0;i<2;i++){const values=target?.rowData?.[i]?.values??[];if(values[0]?.userEnteredValue?.stringValue&&values[0].userEnteredValue.stringValue!==METRICS[i].name)throw Error('比較表の追加先が使用中です。');if(!(helper?.properties.sheetId===HELPER_ID&&METRICS.every(m=>g?.charts?.some(c=>c.chartId===m.chartId&&c.spec.title===m.name+'の推移')))&&values.slice(1).some(v=>v.userEnteredValue))throw Error('比較表の追加先に既存データがあります。');}
+  const dimensions=(await sheets.spreadsheets.get({spreadsheetId,ranges:["'グラフ'!A1:A2200"],includeGridData:true,fields:'sheets(data(rowMetadata(pixelSize,hiddenByUser,hiddenByFilter)))'})).data;
+  const rowMetadata=dimensions.sheets?.flatMap(s=>s.data??[]).flatMap(d=>d.rowMetadata??[])??[];
+  const requests=chartRequests(book,rowMetadata),names=new Set(dropdown.condition.values.map(v=>v.userEnteredValue));
   requests.push({setDataValidation:{range:{sheetId:GRAPH_ID,startRowIndex:7,endRowIndex:8,startColumnIndex:11,endColumnIndex:12},rule:{...dropdown,condition:{...dropdown.condition,values:[...dropdown.condition.values,...METRICS.filter(m=>!names.has(m.name)).map(m=>({userEnteredValue:m.name}))]}}}});
   await sheets.spreadsheets.batchUpdate({spreadsheetId,requestBody:{requests}});
   console.log('登録月別ログイン数: 比較2行・共通デザインのグラフ2個・拡大表示を設定しました。');
