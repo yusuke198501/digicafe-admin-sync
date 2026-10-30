@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {formulaRequests,validateSource,PLAN,SOURCE,DESTINATION,migrate} from './migrate-analysis-workbook.mjs';
+import {formulaRequests,validateSource,PLAN,SOURCE,DESTINATION,migrate,valueRows} from './migrate-analysis-workbook.mjs';
 test('migration source and destination are distinct and all eight identities are exact',()=>{
  assert.notEqual(SOURCE,DESTINATION);
  const source={spreadsheetId:SOURCE,sheets:PLAN.map(([sheetId,title])=>({properties:{sheetId,title}}))};
@@ -30,4 +30,7 @@ test('destination name or ID collisions abort before any mutation',async()=>{
  const destination={spreadsheetId:DESTINATION,sheets:[{properties:{sheetId:888,title:'シート8'}}]};
  const sheets={spreadsheets:{get:async({spreadsheetId})=>({data:spreadsheetId===SOURCE?source:destination}),values:{get:async()=>({data:{}})},batchUpdate:async()=>writes++}};
  await assert.rejects(()=>migrate(sheets,'stage'),/collision/);assert.equal(writes,0);
+});
+test('chunk verification preserves real zero and empty text while ignoring format-only trailing cells',()=>{
+ assert.deepEqual(valueRows([{values:[{userEnteredValue:{numberValue:0}},{userEnteredValue:{stringValue:''}},{userEnteredFormat:{wrapStrategy:'CLIP'}}]},{values:[{}]}]),[[{numberValue:0},{stringValue:''}]]);
 });
