@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {cohortLoginQuery,cohortLoginOrBlank} from './sync-sheet8.js';
+import {cohortLoginQuery,cohortLoginOrBlank,carryForwardCohortLogins} from './sync-sheet8.js';
 const form='<form><input name="sum"><input name="message_sent_start"><input name="area[]" type="checkbox" checked value="1"><input name="paid_start" value="2020-01-01"></form>';
 test('login snapshots use all males and exact registration calendar months',()=>{
   for (const [date,prior,start,end] of [
@@ -17,6 +17,17 @@ test('login snapshots use all males and exact registration calendar months',()=>
     assert.equal(q.get('message_sent_start'),'');assert.deepEqual(q.getAll('area[]'),['1']);
   }
   assert.throws(()=>cohortLoginQuery(form,'2026-02-30'));
+});
+test('missing cohort metrics independently use the most recent same-day valid count',()=>{
+ const rows=[['2026-10-30 13:00:00',120,40],['2026-10-30 13:05:00','',42],['2026-10-30 13:10:00',125,'']];
+ assert.deepEqual(carryForwardCohortLogins(['',''],rows,'2026-10-30 13:15:00',()=>{}),[125,42]);
+ assert.deepEqual(carryForwardCohortLogins([0,45],rows,'2026-10-30 13:15:00',()=>{}),[0,45]);
+ assert.deepEqual(carryForwardCohortLogins(['',0],[['2026-10-30 13:10:00',0,42]],'2026-10-30 13:15:00',()=>{}),[0,0]);
+});
+test('cohort fallback excludes other days, same/future timestamps, and invalid counts',()=>{
+ const rows=[['2026-10-29 23:55:00',999,999],['2026-10-30 13:15:00',888,888],['2026-10-30 13:20:00',777,777],['invalid',666,666],['2026-10-30 13:10:00',-1,1.5]];
+ assert.deepEqual(carryForwardCohortLogins(['',''],rows,'2026-10-30 13:15:00',()=>{}),['','']);
+ assert.deepEqual(carryForwardCohortLogins(['',''],[['2026-10-31 23:55:00',55,66]],'2026-11-01 00:00:00',()=>{}),['','']);
 });
 test('real zero is retained and unavailable counts are blank without secret leakage',async()=>{
   assert.equal(await cohortLoginOrBlank(async()=>0),0);

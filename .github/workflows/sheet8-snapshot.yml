@@ -2,6 +2,10 @@ name: シート8 5分集計
 on:
   workflow_dispatch:
     inputs:
+      cohort_graph_setup:
+        description: 'Set up cohort login charts and comparison only (no snapshot append)'
+        type: boolean
+        default: false
       ga4_probe:
         description: 'Read-only GA4 realtime test'
         type: boolean
@@ -30,9 +34,10 @@ jobs:
         with:
           node-version: 22
       - run: npm install --ignore-scripts --no-audit --no-fund
-      - run: node --test scripts/cohort-logins.test.js scripts/sync-sheet8.test.js scripts/payment-points.test.js scripts/voluntary-leaves.test.js scripts/ga4-realtime.test.mjs scripts/ga4-chart.test.mjs scripts/all-received-chart.test.mjs scripts/expanded-chart.test.mjs scripts/expanded-chart.test.mjs
+      - run: node --test scripts/cohort-login-charts.test.mjs scripts/cohort-logins.test.js scripts/sync-sheet8.test.js scripts/payment-points.test.js scripts/voluntary-leaves.test.js scripts/ga4-realtime.test.mjs scripts/ga4-chart.test.mjs scripts/all-received-chart.test.mjs scripts/expanded-chart.test.mjs scripts/expanded-chart.test.mjs
       - run: node scripts/sync-sheet8.js
         env:
+          COHORT_GRAPH_SETUP_ONLY: ${{ inputs.cohort_graph_setup }}
           GA4_PROBE_ONLY: ${{ inputs.ga4_probe }}
           GA4_OAUTH_JSON: ${{ secrets.GA4_OAUTH_JSON }}
           PAYMENT_PROBE_ONLY: ${{ inputs.payment_probe }}
