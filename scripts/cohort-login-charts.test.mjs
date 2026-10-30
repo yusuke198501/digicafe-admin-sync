@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {chartRequests,helperRows,chartSpec,METRICS,GRAPH_ID,HELPER_ID,snapshotFormula,refreshCohortLoginCharts,SUBTITLE} from './cohort-login-charts.mjs';
+import {chartRequests,helperRows,chartSpec,METRICS,GRAPH_ID,HELPER_ID,snapshotFormula,refreshCohortLoginCharts,SUBTITLE,availableColumns} from './cohort-login-charts.mjs';
 const template={chartId:1926102601,spec:{title:'全体受信数の推移',fontName:'Arial',basicChart:{chartType:'LINE',legendPosition:'BOTTOM_LEGEND'}},position:{overlayPosition:{anchorCell:{sheetId:GRAPH_ID,rowIndex:180,columnIndex:0},widthPixels:730,heightPixels:300}}};
 const first={...template,chartId:123,position:{overlayPosition:{...template.position.overlayPosition,anchorCell:{sheetId:GRAPH_ID,rowIndex:36,columnIndex:0}}}};
 const book={sheets:[{properties:{sheetId:GRAPH_ID,title:'グラフ'},charts:[first,template,{chartId:2027820698,position:{overlayPosition:{anchorCell:{sheetId:GRAPH_ID,rowIndex:8,columnIndex:8},heightPixels:500}}}]}]};
@@ -34,7 +34,7 @@ test('writes are scoped to the owned helper and the requested graph additions',(
  assert.throws(()=>chartRequests({sheets:[...book.sheets,{properties:{sheetId:HELPER_ID,title:'他の計算'}}]}));
 });
 test('already installed charts perform no writes on regular five-minute runs',async()=>{
- let writes=0;const sheets={spreadsheets:{get:async()=>({data:{sheets:[{properties:{sheetId:GRAPH_ID,title:'グラフ'},charts:METRICS.map(m=>({chartId:m.chartId,spec:{title:m.name+'の推移',subtitle:SUBTITLE}}))},{properties:{sheetId:HELPER_ID,title:'_登録月別ログイングラフ'}}]}}),batchUpdate:async()=>writes++}};
+ let writes=0;const sheets={spreadsheets:{get:async()=>({data:{sheets:[{properties:{sheetId:GRAPH_ID,title:'グラフ'},charts:METRICS.map(m=>({chartId:m.chartId,spec:chartSpec(template.spec,m,[1])}))},{properties:{sheetId:HELPER_ID,title:'_登録月別ログイングラフ'}}]}}),values:{batchGet:async()=>({data:{valueRanges:METRICS.map(()=>({values:[['時刻','対象日','比較日','7日前','予測','当月平均'],[0,0]]}))}})},batchUpdate:async()=>writes++}};
  await refreshCohortLoginCharts(sheets,'test');assert.equal(writes,0);
 });
 
@@ -50,4 +50,12 @@ test('layout accounts for hidden rows and pixel offsets, and repairs only owned 
  const repaired=chartRequests(fixture,rows).filter(r=>r.updateEmbeddedObjectPosition&&METRICS.some(m=>m.chartId===r.updateEmbeddedObjectPosition.objectId));
  assert.equal(repaired.length,2);
  assert.equal(repaired[0].updateEmbeddedObjectPosition.newPosition.overlayPosition.offsetYPixels,0);
+});
+
+test('empty histories do not change series colors when comparison and forecast appear',()=>{
+ assert.deepEqual(availableColumns([['時刻','対象日','比較日','7日前','予測','当月平均'],[0,420,'','','','']]),[1]);
+ const shown=chartSpec(template.spec,METRICS[0],[1,4]).basicChart.series;
+ assert.deepEqual(shown[0].colorStyle,shown[1].colorStyle);
+ assert.equal(shown[1].lineStyle.type,'MEDIUM_DASHED');
+ assert.deepEqual(availableColumns([[],[0,0,3,'',4]]),[1,2,4]);
 });

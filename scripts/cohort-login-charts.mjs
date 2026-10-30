@@ -1,8 +1,8 @@
 export const GRAPH_ID = 174166888;
 export const HELPER_ID = 1926103001;
 export const HELPER_TITLE = '_登録月別ログイングラフ';
-export const VERSION = 'cohort-logins-v3';
-export const SUBTITLE = '実線：実績／青い破線：予測（比較日基準）';
+export const VERSION = 'cohort-logins-v4';
+export const SUBTITLE = '実線：実績／青い破線：予測（比較日の推移基準）';
 export const METRICS = [
   {name:'当月登録者ログイン数',column:'AB',chartId:1926103002,comparisonRow:37,offset:0},
   {name:'２ヶ月目登録者ログイン数',column:'AC',chartId:1926103003,comparisonRow:38,offset:10}
@@ -39,16 +39,16 @@ export function helperRows() {
       rows[i+2][o+1]=`=IF($${latest}$2="","",IF(${tm}>IFERROR(${anchor},0),"",${value.slice(1)}))`;
       rows[i+2][o+2]=snapshotFormula(m.column,`${graph}$E$3`,tm);
       rows[i+2][o+3]=snapshotFormula(m.column,`${graph}$H$3`,tm);
-      rows[i+2][o+4]=`=IFERROR(IF(OR(${graph}$B$3<>TODAY(),${tm}<${anchor},NOT(ISNUMBER($${actual}$2))),"",IF(ABS(${tm}-${anchor})<0.000000001,$${actual}$2,IF(OR(NOT(ISNUMBER($${base}$2)),$${base}$2<=0,NOT(ISNUMBER(${compare}${r}))),"",$${actual}$2*${compare}${r}/$${base}$2))),"")`;
+      rows[i+2][o+4]=`=IFERROR(IF(OR(${graph}$B$3<>TODAY(),${tm}<${anchor},NOT(ISNUMBER(${actual}$2)),NOT(ISNUMBER(${base}$2)),${base}$2<=0),"",IF(ABS(${tm}-${anchor})<0.000000001,$${actual}$2,IF(OR(NOT(ISNUMBER($${base}$2)),$${base}$2<=0,NOT(ISNUMBER(${compare}${r}))),"",$${actual}$2*${compare}${r}/$${base}$2))),"")`;
       rows[i+2][o+5]=meanFormula(m.column,tm);
     }
   }
   return rows.map(row=>({values:row.map(cell)}));
 }
-export function chartSpec(template,m) {
+export function chartSpec(template,m,visible=[1,2,3,4,5]) {
   const colors=[[66,133,244],[153,153,153],[153,0,255],[66,133,244],[255,109,1]];
   const range=c=>({sheetId:HELPER_ID,startRowIndex:1,endRowIndex:51,startColumnIndex:c,endColumnIndex:c+1});
-  return {...template,title:m.name+'の推移',subtitle:SUBTITLE,hiddenDimensionStrategy:'SHOW_ALL',basicChart:{...template.basicChart,chartType:'LINE',headerCount:1,interpolateNulls:false,axis:[{position:'BOTTOM_AXIS',title:'時刻'},{position:'LEFT_AXIS',title:'人'}],domains:[{domain:{sourceRange:{sources:[range(m.offset)]}}}],series:colors.map((rgb,i)=>({series:{sourceRange:{sources:[range(m.offset+i+1)]}},targetAxis:'LEFT_AXIS',colorStyle:{rgbColor:{red:rgb[0]/255,green:rgb[1]/255,blue:rgb[2]/255}},lineStyle:{width:i===0?4:2,type:i===3?'MEDIUM_DASHED':'SOLID'},pointStyle:{size:0}}))}};
+  return {...template,title:m.name+'の推移',subtitle:SUBTITLE,hiddenDimensionStrategy:'SHOW_ALL',basicChart:{...template.basicChart,chartType:'LINE',headerCount:1,interpolateNulls:false,axis:[{position:'BOTTOM_AXIS',title:'時刻'},{position:'LEFT_AXIS',title:'人'}],domains:[{domain:{sourceRange:{sources:[range(m.offset)]}}}],series:colors.map((rgb,i)=>({series:{sourceRange:{sources:[range(m.offset+i+1)]}},targetAxis:'LEFT_AXIS',colorStyle:{rgbColor:{red:rgb[0]/255,green:rgb[1]/255,blue:rgb[2]/255}},lineStyle:{width:i===0?4:2,type:i===3?'MEDIUM_DASHED':'SOLID'},pointStyle:{size:0}})).filter((_,i)=>visible.includes(i+1))}};
 }
 export function chartRequests(book,rowMetadata=[]) {
   const g=book.sheets?.find(s=>s.properties?.sheetId===GRAPH_ID);
@@ -103,9 +103,9 @@ export function chartRequests(book,rowMetadata=[]) {
   return requests;
 }
 export async function refreshCohortLoginCharts(sheets,spreadsheetId) {
-  const initial=(await sheets.spreadsheets.get({spreadsheetId,fields:'sheets(properties(sheetId,title),charts(chartId,spec(title,subtitle)))'})).data;
+  const initial=(await sheets.spreadsheets.get({spreadsheetId,fields:'sheets(properties(sheetId,title),charts(chartId,spec))'})).data;
   const g=initial.sheets?.find(s=>s.properties.sheetId===GRAPH_ID),helper=initial.sheets?.find(s=>s.properties.title===HELPER_TITLE);
-  if(helper?.properties.sheetId===HELPER_ID&&METRICS.every(m=>g?.charts?.some(c=>c.chartId===m.chartId&&c.spec.title===m.name+'の推移'&&c.spec.subtitle===SUBTITLE)))return;
+  if(helper?.properties.sheetId===HELPER_ID&&METRICS.every(m=>g?.charts?.some(c=>c.chartId===m.chartId&&c.spec.title===m.name+'の推移'&&c.spec.subtitle===SUBTITLE))){await refreshSeries(sheets,spreadsheetId,g.charts);return;}
   const book=(await sheets.spreadsheets.get({spreadsheetId,fields:'sheets(properties(sheetId,title),charts(chartId,spec,position))'})).data;
   const existing=(await sheets.spreadsheets.get({spreadsheetId,ranges:["'グラフ'!L8","'グラフ'!A37:J38"],includeGridData:true,fields:'sheets(data(startRow,startColumn,rowData(values(userEnteredValue,dataValidation))))'})).data;
   const grids=existing.sheets?.flatMap(s=>s.data??[])??[];
@@ -118,5 +118,20 @@ export async function refreshCohortLoginCharts(sheets,spreadsheetId) {
   const requests=chartRequests(book,rowMetadata),names=new Set(dropdown.condition.values.map(v=>v.userEnteredValue));
   requests.push({setDataValidation:{range:{sheetId:GRAPH_ID,startRowIndex:7,endRowIndex:8,startColumnIndex:11,endColumnIndex:12},rule:{...dropdown,condition:{...dropdown.condition,values:[...dropdown.condition.values,...METRICS.filter(m=>!names.has(m.name)).map(m=>({userEnteredValue:m.name}))]}}}});
   await sheets.spreadsheets.batchUpdate({spreadsheetId,requestBody:{requests}});
+  await refreshSeries(sheets,spreadsheetId,METRICS.map(m=>({chartId:m.chartId,spec:chartSpec(book.sheets.find(s=>s.properties.sheetId===GRAPH_ID).charts.find(c=>c.chartId===1926102601||c.chartId===1702630169).spec,m)})));
   console.log('登録月別ログイン数: 比較2行・共通デザインのグラフ2個・拡大表示を設定しました。');
+}
+
+export function availableColumns(values){
+ const columns=[1,2,3,4,5].filter(c=>values.slice(1).some(row=>typeof row[c]==='number'&&Number.isFinite(row[c])));
+ return columns.length?columns:[1];
+}
+async function refreshSeries(sheets,spreadsheetId,charts){
+ const data=await sheets.spreadsheets.values.batchGet({spreadsheetId,ranges:METRICS.map(m=>"'"+HELPER_TITLE+"'!"+(m.offset?'K2:P51':'A2:F51')),valueRenderOption:'UNFORMATTED_VALUE'});
+ const requests=METRICS.flatMap((m,i)=>{
+   const existing=charts.find(c=>c.chartId===m.chartId);
+   const spec=chartSpec(existing.spec,m,availableColumns(data.data.valueRanges?.[i]?.values??[]));
+   return JSON.stringify(existing.spec.basicChart?.series)===JSON.stringify(spec.basicChart.series)?[]:[{updateChartSpec:{chartId:m.chartId,spec}}];
+ });
+ if(requests.length)await sheets.spreadsheets.batchUpdate({spreadsheetId,requestBody:{requests}});
 }
