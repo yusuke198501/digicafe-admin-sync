@@ -12,6 +12,21 @@ test('existing logins exclude current and prior registration months with the all
  }
  assert.throws(()=>existingCohortLoginQuery(form,'2026-02-30'));
 });
+test('paid existing logins use E payment scope and exclude current and prior registration months',()=>{
+ for(const [date,end] of [['2026-11-02','2026-09-30'],['2027-01-01','2026-11-30'],['2028-04-01','2028-02-29']]){
+  const q=existingCohortLoginQuery(form,date,true);
+  assert.equal(q.get('is_paying'),'1');assert.equal(q.get('sex'),'0');
+  assert.equal(q.get('login_start'),date);assert.equal(q.get('login_end'),date);
+  assert.equal(q.get('regist_start'),'');assert.equal(q.get('regist_end'),end);
+  assert.equal(q.get('paid_start'),'');assert.equal(q.get('paid_end'),'');
+ }
+});
+test('paid existing failures use AE history only, retain zero and exclude previous-day data',()=>{
+ const history=[['2026-11-01 23:55:00',1,2,3,9999],['2026-11-02 13:00:00',10,20,300,200]];
+ assert.deepEqual(carryForwardCohortLogins([12,22,330,''],history,'2026-11-02 13:10:00',()=>{}),[12,22,330,200]);
+ assert.deepEqual(carryForwardCohortLogins([12,22,330,0],history,'2026-11-02 13:10:00',()=>{}),[12,22,330,0]);
+ assert.deepEqual(carryForwardCohortLogins([12,22,330,''],history.slice(0,1),'2026-11-02 13:10:00',()=>{}),[12,22,330,'']);
+});
 test('third cohort keeps real zero, fills only unavailable older-cohort counts and never uses another day',()=>{
  const history=[['2026-11-01 23:55:00',1,2,9999],['2026-11-02 13:00:00',10,20,300],['2026-11-02 13:05:00',11,21,'']];
  assert.deepEqual(carryForwardCohortLogins([12,22,''],history,'2026-11-02 13:10:00',()=>{}),[12,22,300]);
