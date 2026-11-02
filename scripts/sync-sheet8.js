@@ -18,7 +18,7 @@ const BASE = 'https://log.digicafe.jp/partner/';
 const SHEET = "'シート8'";
 export function validateSnapshotDestination(sheets) {
   const sheet = sheets?.find(s => s.properties?.sheetId === 1467610996)?.properties;
-  if (!sheet || sheet.title !== 'シート8' || sheet.gridProperties?.columnCount < 29) throw new Error('シート8の書き込み先を確認できません。');
+  if (!sheet || sheet.title !== 'シート8' || sheet.gridProperties?.columnCount < 30) throw new Error('シート8の書き込み先を確認できません。');
 }
 const compact = (s) => String(s ?? '').replace(/\s/g, '');
 function number(s) {
@@ -158,6 +158,14 @@ export function cohortLoginQuery(html, date, previousMonth = false) {
   q.set('regist_end',end.toISOString().slice(0,10));
   return q;
 }
+export function existingCohortLoginQuery(html, date) {
+  const q = cohortLoginQuery(html,date,true);
+  const priorStart = new Date(`${q.get('regist_start')}T00:00:00Z`);
+  priorStart.setUTCDate(priorStart.getUTCDate()-1);
+  q.set('regist_start','');
+  q.set('regist_end',priorStart.toISOString().slice(0,10));
+  return q;
+}
 export async function cohortLoginOrBlank(collect, warn = message => console.warn(message)) {
   try {
     const count = await collect();
@@ -171,10 +179,10 @@ export async function cohortLoginOrBlank(collect, warn = message => console.warn
 export function carryForwardCohortLogins(values, history, timestamp, warn=message=>console.warn(message)) {
   const valid=n=>Number.isSafeInteger(n)&&n>=0;
   const result=values.map(v=>valid(v)?v:'');
-  for(let c=0;c<2;c++) {
+  for(let c=0;c<result.length;c++) {
     if(valid(result[c]))continue;
     const prior=history.filter(r=>slot(String(r[0]))&&String(r[0]).slice(0,10)===timestamp.slice(0,10)&&String(r[0])<timestamp&&valid(r[c+1])).sort((a,b)=>String(b[0]).localeCompare(String(a[0])))[0];
-    if(prior){result[c]=prior[c+1];warn(`WARNING: ${c===0?'AB':'AC'}列は未取得のため同日直前 ${prior[0]} の値で補完しました。`);}
+    if(prior){result[c]=prior[c+1];warn(`WARNING: ${['AB','AC','AD'][c]}列は未取得のため同日直前 ${prior[0]} の値で補完しました。`);}
   }
   return result;
 }
@@ -331,7 +339,7 @@ async function main() {
     const candidate = String(timestamps[i][0]);
     if (!slot(candidate) || candidate >= timestamp) continue;
     if (candidate.slice(0,10) === date) {
-      previous = (await sheets.spreadsheets.values.get({spreadsheetId,range:`${SHEET}!A${i+2}:AC${i+2}`,valueRenderOption:'UNFORMATTED_VALUE'})).data.values?.[0];
+      previous = (await sheets.spreadsheets.values.get({spreadsheetId,range:`${SHEET}!A${i+2}:AD${i+2}`,valueRenderOption:'UNFORMATTED_VALUE'})).data.values?.[0];
     }
     break;
   }
@@ -366,11 +374,11 @@ async function main() {
   const mailHtml = partnerGet(mailUrl.href);
   mailHtml.catch(() => {});
   const formHtml = partnerGet(new URL('list', BASE).href).catch(()=>null);
-  const cohortLoginPromise = Promise.all([false,true].map(prior => cohortLoginOrBlank(async()=>{
+  const cohortLoginPromise = Promise.all([false,true,'existing'].map(prior => cohortLoginOrBlank(async()=>{
     const html = await formHtml;
     if (!html) throw new Error();
     const url = new URL('list',BASE);
-    url.search = cohortLoginQuery(html,date,prior);
+    url.search = prior==='existing' ? existingCohortLoginQuery(html,date) : cohortLoginQuery(html,date,prior);
     return parseMembers(await partnerGet(url.href));
   })));
   async function memberCount(type) {
@@ -414,12 +422,12 @@ async function main() {
   const ga4ActiveUsers = await ga4Promise;
   let cohortLogins = await cohortLoginPromise;
   if(cohortLogins.some(v=>!Number.isSafeInteger(v)||v<0)) {
-    let history=previous?[[previous[0],previous[27],previous[28]]]:[];
+    let history=previous?[[previous[0],previous[27],previous[28],previous[29]]]:[];
     const eligible=timestamps.map((r,i)=>({stamp:String(r[0]),i})).filter(r=>slot(r.stamp)&&r.stamp.slice(0,10)===date&&r.stamp<timestamp);
     if(eligible.length)try{
       const first=Math.min(...eligible.map(r=>r.i)),last=Math.max(...eligible.map(r=>r.i));
-      const counts=(await sheets.spreadsheets.values.get({spreadsheetId,range:`${SHEET}!AB${first+2}:AC${last+2}`,valueRenderOption:'UNFORMATTED_VALUE'})).data.values??[];
-      history=eligible.map(r=>[r.stamp,counts[r.i-first]?.[0],counts[r.i-first]?.[1]]);
+      const counts=(await sheets.spreadsheets.values.get({spreadsheetId,range:`${SHEET}!AB${first+2}:AD${last+2}`,valueRenderOption:'UNFORMATTED_VALUE'})).data.values??[];
+      history=eligible.map(r=>[r.stamp,counts[r.i-first]?.[0],counts[r.i-first]?.[1],counts[r.i-first]?.[2]]);
     }catch{console.warn('WARNING: 登録月別ログイン数の過去値読込に失敗。確認済みの直前行のみ使用します。');}
     cohortLogins=carryForwardCohortLogins(cohortLogins,history,timestamp);
   }
@@ -429,9 +437,9 @@ async function main() {
   row.push(ga4ActiveUsers);
   // Apply the existing same-day zero fallback only to AA, never to realtime GA4.
   row.push(carryForwardZeros([...row.slice(0,25),0,allReceived],previous)[26]);
-  // AB/AC preserve real zero; only unavailable values use verified same-day history.
+  // AB:AD use all males, preserve real zero and only fill failures from same-day history.
   row.push(...cohortLogins);
-  const result = await sheets.spreadsheets.values.append({spreadsheetId,range:`${SHEET}!A:AC`,valueInputOption:'RAW',insertDataOption:'INSERT_ROWS',requestBody:{values:[row]}});
+  const result = await sheets.spreadsheets.values.append({spreadsheetId,range:`${SHEET}!A:AD`,valueInputOption:'RAW',insertDataOption:'INSERT_ROWS',requestBody:{values:[row]}});
   const range = result.data.updates?.updatedRange;
   if (!range) throw new Error('追記結果の範囲がありません。');
   const read = (await sheets.spreadsheets.values.get({spreadsheetId,range,valueRenderOption:'UNFORMATTED_VALUE'})).data.values;
