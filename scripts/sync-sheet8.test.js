@@ -84,6 +84,7 @@ test('successful zero and valid values remain unchanged; malformed values become
 });
 test('column-based destination ignores renamed labels, preserves sheet identity check',()=>{
   assert.doesNotThrow(()=>validateSnapshotDestination([{properties:{sheetId:1467610996,title:'シート8',gridProperties:{columnCount:31}}}]));
+  assert.throws(()=>validateSnapshotDestination([{properties:{sheetId:1467610996,title:'シート8',gridProperties:{columnCount:30}}}]));
   for (const properties of [{sheetId:0,title:'シート8',gridProperties:{columnCount:31}},{sheetId:1467610996,title:'別シート',gridProperties:{columnCount:31}},{sheetId:1467610996,title:'シート8',gridProperties:{columnCount:11}}]) assert.throws(()=>validateSnapshotDestination([{properties}]));
 });
 test('zero metrics copy same-day previous values column by column without replacing nonzero values',()=>{
@@ -185,4 +186,3 @@ test('AA reads only full receive total, not interaction/cohort/send values', () 
   assert.throws(() => parseAllReceived(html.replace('12,345通','-')));
   assert.throws(() => parseAllReceived(html + html));
 });
-
