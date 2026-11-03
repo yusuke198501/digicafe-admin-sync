@@ -1,4 +1,5 @@
 import { refreshGa4Chart } from './ga4-chart.mjs';
+import { fullCollectionDue, recordGa4Snapshot } from './ga4-snapshots.mjs';
 import { refreshCohortLoginCharts } from './cohort-login-charts.mjs';
 import { fetchGa4Realtime, ga4OrBlank } from './ga4-realtime.mjs';
 import axios from 'axios';
@@ -333,6 +334,13 @@ async function main() {
   const metadata = await sheets.spreadsheets.get({spreadsheetId,fields:'sheets(properties(sheetId,title,gridProperties(columnCount)))'});
   validateSnapshotDestination(metadata.data.sheets);
   if(process.env.COHORT_GRAPH_SETUP_ONLY==='true'){await refreshCohortLoginCharts(sheets,spreadsheetId);console.log('Graph setup only: no snapshot was appended.');return;}
+  if (!fullCollectionDue(timestamp)) {
+    await recordGa4Snapshot(sheets,spreadsheetId,timestamp,await fetchGa4Realtime());
+    await refreshGraphSnapshotTime(sheets,spreadsheetId,timestamp);
+    await refreshGa4Chart(sheets,spreadsheetId);
+    console.log('GA4-only collection complete; normal metrics run every 30 minutes.');
+    return;
+  }
   const timestamps = (await sheets.spreadsheets.values.get({spreadsheetId,range:`${SHEET}!A2:A`})).data.values ?? [];
   if (timestamps.slice(-100).some(r => slot(String(r[0])) === slot(timestamp))) { await refreshCohortLoginCharts(sheets,spreadsheetId); await refreshGa4Chart(sheets,spreadsheetId); console.log('SKIPPED: snapshot for this 5-minute slot exists; charts refreshed'); return; }
   let previous;
@@ -448,6 +456,7 @@ async function main() {
   while (verified.length < row.length && row.slice(verified.length).every(v => v === '')) verified.push('');
   if (JSON.stringify(verified) !== JSON.stringify(row)) throw new Error('追記後の照合に失敗しました。');
   console.log(JSON.stringify({range,row}));
+  if (Number.isSafeInteger(ga4ActiveUsers)) await recordGa4Snapshot(sheets,spreadsheetId,timestamp,ga4ActiveUsers);
   await refreshGraphSnapshotTime(sheets,spreadsheetId,timestamp);
   try { await refreshCohortLoginCharts(sheets,spreadsheetId); } catch { console.warn('WARNING: 登録月別ログイン数のグラフ設定を次回に持ち越します。記録は完了しています。'); }
   try { await refreshGa4Chart(sheets,spreadsheetId); } catch { console.warn('WARNING: GA4 chart refresh deferred; snapshot saved.'); }
