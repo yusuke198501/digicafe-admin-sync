@@ -29,7 +29,7 @@ test('formula matrix covers 00:00 to 24:00 and never substitutes missing history
 test('writes are scoped to the owned helper and the requested graph additions',()=>{
  const req=chartRequests(book);assert.equal(req.find(r=>r.addSheet).addSheet.properties.sheetId,HELPER_ID);
  const replacements=req.filter(r=>r.findReplace);assert.equal(replacements.length,2);assert.ok(replacements.every(r=>r.findReplace.range.sheetId===GRAPH_ID&&r.findReplace.range.startRowIndex===1552));
- const cmp=req.find(r=>r.updateCells?.start.sheetId===GRAPH_ID).updateCells;assert.equal(cmp.start.rowIndex,36);assert.equal(cmp.rows.length,2);assert.ok(cmp.rows.every(r=>r.values.length===10));
+ const cmp=req.find(r=>r.updateCells?.start.sheetId===GRAPH_ID).updateCells;assert.equal(cmp.start.rowIndex,37);assert.equal(cmp.rows.length,2);assert.ok(cmp.rows.every(r=>r.values.length===10));
  assert.ok(cmp.rows[0].values[5].userEnteredValue.formulaValue.includes("ISNUMBER('_登録月別ログイングラフ'!H2)"));
  assert.throws(()=>chartRequests({sheets:[...book.sheets,{properties:{sheetId:HELPER_ID,title:'他の計算'}}]}));
 });
