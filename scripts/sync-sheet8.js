@@ -336,7 +336,6 @@ async function main() {
   if(process.env.COHORT_GRAPH_SETUP_ONLY==='true'){await refreshCohortLoginCharts(sheets,spreadsheetId);console.log('Graph setup only: no snapshot was appended.');return;}
   if (!fullCollectionDue(timestamp)) {
     await recordGa4Snapshot(sheets,spreadsheetId,timestamp,await fetchGa4Realtime());
-    await refreshGraphSnapshotTime(sheets,spreadsheetId,timestamp);
     await refreshGa4Chart(sheets,spreadsheetId);
     console.log('GA4-only collection complete; normal metrics run every 30 minutes.');
     return;
