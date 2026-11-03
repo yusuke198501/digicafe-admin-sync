@@ -4,8 +4,8 @@ export const HELPER_TITLE = '_登録月別ログイングラフ';
 export const VERSION = 'cohort-logins-v4';
 export const SUBTITLE = '実線：実績／青い破線：予測（比較日の推移基準）';
 export const METRICS = [
-  {name:'当月登録者ログイン数',column:'AB',chartId:1926103002,comparisonRow:38,offset:0},
-  {name:'２ヶ月目登録者ログイン数',column:'AC',chartId:1926103003,comparisonRow:39,offset:10}
+  {name:'当月登録者ログイン数',column:'AB',chartId:1926103002,comparisonRow:39,offset:0},
+  {name:'２ヶ月目登録者ログイン数',column:'AC',chartId:1926103003,comparisonRow:40,offset:10}
 ];
 const graph = "'グラフ'!";
 function col(i) { return String.fromCharCode(65+i); }
@@ -97,7 +97,7 @@ export function chartRequests(book,rowMetadata=[]) {
     const r=m.comparisonRow,predict=col(m.offset+4),base=col(m.offset+7),helper=`'${HELPER_TITLE}'!`;
     return {values:[m.name,snapshotFormula(m.column,'$B$3','$K$3'),snapshotFormula(m.column,'$E$3','$K$3'),`=IF(OR(B${r}="",C${r}=""),"",B${r}-C${r})`,`=IF(OR(B${r}="",C${r}="",C${r}=0),"",B${r}/C${r}-1)`,`=IFERROR(IF(AND($B$3=TODAY(),ISNUMBER(${helper}${base}2),${helper}${base}2>0),ROUND(XLOOKUP(TRUE,ARRAYFORMULA(ISNUMBER(${helper}${predict}3:${predict}51)),${helper}${predict}3:${predict}51,"",0,-1),0),""),"")`,snapshotFormula(m.column,'$E$3','1'),snapshotFormula(m.column,'$H$3','$K$3'),`=IF(OR(B${r}="",H${r}=""),"",B${r}-H${r})`,`=IF(OR(B${r}="",H${r}="",H${r}=0),"",B${r}/H${r}-1)`].map(cell)};
   });
-  requests.push({copyPaste:{source:{sheetId:GRAPH_ID,startRowIndex:34,endRowIndex:35,startColumnIndex:0,endColumnIndex:10},destination:{sheetId:GRAPH_ID,startRowIndex:37,endRowIndex:39,startColumnIndex:0,endColumnIndex:10},pasteType:'PASTE_FORMAT'}},{updateCells:{start:{sheetId:GRAPH_ID,rowIndex:37,columnIndex:0},rows:comparison,fields:'userEnteredValue'}});
+  requests.push({copyPaste:{source:{sheetId:GRAPH_ID,startRowIndex:35,endRowIndex:36,startColumnIndex:0,endColumnIndex:10},destination:{sheetId:GRAPH_ID,startRowIndex:38,endRowIndex:40,startColumnIndex:0,endColumnIndex:10},pasteType:'PASTE_FORMAT'}},{updateCells:{start:{sheetId:GRAPH_ID,rowIndex:38,columnIndex:0},rows:comparison,fields:'userEnteredValue'}});
   for(const [find,replacement] of [["'シート8'!$A$1:$AA$1","'シート8'!$A$1:$AC$1"],["'シート8'!$A$2:$AA","'シート8'!$A$2:$AC"]])requests.push({findReplace:{find,replacement,range:{sheetId:GRAPH_ID,startRowIndex:1552,endRowIndex:1843,startColumnIndex:55,endColumnIndex:60},includeFormulas:true,matchCase:true}});
   for(const o of [0,10])requests.push({repeatCell:{range:{sheetId:HELPER_ID,startRowIndex:2,endRowIndex:51,startColumnIndex:o,endColumnIndex:o+1},cell:{userEnteredFormat:{numberFormat:{type:'TIME',pattern:'hh:mm'}}},fields:'userEnteredFormat.numberFormat'}});
   return requests;
@@ -107,11 +107,11 @@ export async function refreshCohortLoginCharts(sheets,spreadsheetId) {
   const g=initial.sheets?.find(s=>s.properties.sheetId===GRAPH_ID),helper=initial.sheets?.find(s=>s.properties.title===HELPER_TITLE);
   if(helper?.properties.sheetId===HELPER_ID&&METRICS.every(m=>g?.charts?.some(c=>c.chartId===m.chartId&&c.spec.title===m.name+'の推移'&&c.spec.subtitle===SUBTITLE))){await refreshSeries(sheets,spreadsheetId,g.charts);return;}
   const book=(await sheets.spreadsheets.get({spreadsheetId,fields:'sheets(properties(sheetId,title),charts(chartId,spec,position))'})).data;
-  const existing=(await sheets.spreadsheets.get({spreadsheetId,ranges:["'グラフ'!L8","'グラフ'!A38:J39"],includeGridData:true,fields:'sheets(data(startRow,startColumn,rowData(values(userEnteredValue,dataValidation))))'})).data;
+  const existing=(await sheets.spreadsheets.get({spreadsheetId,ranges:["'グラフ'!L8","'グラフ'!A39:J40"],includeGridData:true,fields:'sheets(data(startRow,startColumn,rowData(values(userEnteredValue,dataValidation))))'})).data;
   const grids=existing.sheets?.flatMap(s=>s.data??[])??[];
   const dropdown=grids.find(d=>d.startRow===7&&d.startColumn===11)?.rowData?.[0]?.values?.[0]?.dataValidation;
   if(dropdown?.condition?.type!=='ONE_OF_LIST')throw Error('拡大表示の選択肢を確認できません。');
-  const target=grids.find(d=>d.startRow===37&&(!d.startColumn||d.startColumn===0));
+  const target=grids.find(d=>d.startRow===38&&(!d.startColumn||d.startColumn===0));
   for(let i=0;i<2;i++){const values=target?.rowData?.[i]?.values??[];if(values[0]?.userEnteredValue?.stringValue&&values[0].userEnteredValue.stringValue!==METRICS[i].name)throw Error('比較表の追加先が使用中です。');if(!(helper?.properties.sheetId===HELPER_ID&&METRICS.every(m=>g?.charts?.some(c=>c.chartId===m.chartId&&c.spec.title===m.name+'の推移')))&&values.slice(1).some(v=>v.userEnteredValue))throw Error('比較表の追加先に既存データがあります。');}
   const dimensions=(await sheets.spreadsheets.get({spreadsheetId,ranges:["'グラフ'!A1:A2200"],includeGridData:true,fields:'sheets(data(rowMetadata(pixelSize,hiddenByUser,hiddenByFilter)))'})).data;
   const rowMetadata=dimensions.sheets?.flatMap(s=>s.data??[]).flatMap(d=>d.rowMetadata??[])??[];
