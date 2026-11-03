@@ -8,7 +8,7 @@ import { inferReportHourFromTrigger, isReportSlotStale, parseExplicitReportDate,
 import { parseGrossSales, parsePaidMaleAllUsagePt } from './gross-sales-report.js';
 import { boxColumnsFromTableHeaders, parseDailyBoxDau, sendColumnsFromHeader, summaryMetricColumnsFromHeader } from './box-dau-layout.js';
 import { cumulativeLoginAccountMetrics } from './login-account-hourly.js';
-import { buildWeeklySummaryWrites } from './weekly-summary.js';
+import { buildWeeklySummaryWrites, loadWeeklySummarySources } from './weekly-summary.js';
 import { parseKaidanMetrics } from './kaidan-report.js';
 import { networkRetry } from './network-retry.js';
 import { numberOrZero, valueOrDefault, requestOrNull } from './zero-on-missing.js';
@@ -803,14 +803,14 @@ async function updateSheet(metrics, hour, date, canRunForSlot) {
   const nameToId = await loadNameToId(sheets, spreadsheetId);
   const executionTime = currentTimeJst();
   const results = [];
-  let weeklySourceRows = null;
+  let weeklySourceRowsByMonth = null;
   if (hour === 9) {
     try {
-      const weeklySource = await sheets.spreadsheets.values.get({
+      weeklySourceRowsByMonth = await loadWeeklySummarySources({
+        sheets,
         spreadsheetId: WEEKLY_SOURCE_SPREADSHEET_ID,
-        range: "'総合'!A:K",
+        reportDate: date.iso,
       });
-      weeklySourceRows = weeklySource.data.values ?? [];
     } catch (error) {
       console.warn(`週目標・週結果は取得元を読めず今回はスキップします: ${error.message}`);
     }
@@ -839,9 +839,9 @@ async function updateSheet(metrics, hour, date, canRunForSlot) {
       }];
     });
     let weeklyWrites = [];
-    if (hour === 9 && weeklySourceRows) {
+    if (hour === 9 && weeklySourceRowsByMonth) {
       const weekly = buildWeeklySummaryWrites({
-        sourceRows: weeklySourceRows,
+        sourceRowsByMonth: weeklySourceRowsByMonth,
         targetValues: values,
         reportDate: date.iso,
         sheetName,
