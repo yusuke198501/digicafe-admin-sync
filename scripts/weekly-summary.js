@@ -32,6 +32,44 @@ function dateSequence(reportDate) {
   return dates;
 }
 
+function monthKey(date) {
+  return date.toISOString().slice(0, 7);
+}
+
+// Resolve each month independently: concatenating tables would shift the
+// revised-goal boundary at row 43 and mix goals with the original results.
+export async function loadWeeklySummarySources({ sheets, spreadsheetId, reportDate }) {
+  const months = [...new Set(dateSequence(reportDate).map(monthKey))];
+  const metadata = await sheets.spreadsheets.get({
+    spreadsheetId, fields: 'sheets(properties(title))',
+  });
+  const titles = new Set((metadata.data.sheets ?? []).map(sheet => sheet.properties.title));
+  const sources = months.map(month => {
+    const archive = `${month.slice(2, 4)}${month.slice(5, 7)}総合`;
+    const title = titles.has(archive) ? archive : '総合';
+    if (!titles.has(title)) throw new Error(`Weekly source sheet for ${month} is missing.`);
+    return { month, title };
+  });
+  const titlesToRead = [...new Set(sources.map(source => source.title))];
+  const response = await sheets.spreadsheets.values.batchGet({
+    spreadsheetId,
+    ranges: titlesToRead.map(title => `'${title}'!A1:K80`),
+    valueRenderOption: 'FORMATTED_VALUE',
+  });
+  const rowsByTitle = new Map(titlesToRead.map((title, index) =>
+    [title, response.data.valueRanges?.[index]?.values ?? []]));
+  return Object.fromEntries(sources.map(({ month, title }) => {
+    const rows = rowsByTitle.get(title);
+    const heading = /^(\d{2}|\d{4})年(\d{1,2})月/.exec(cellText(rows[0]?.[0]));
+    const year = heading && (heading[1].length === 2 ? 2000 + Number(heading[1]) : Number(heading[1]));
+    const actualMonth = heading && `${year}-${heading[2].padStart(2, '0')}`;
+    if (actualMonth !== month) {
+      throw new Error(`Weekly source ${title} is for ${actualMonth || 'an unknown month'}, not ${month}.`);
+    }
+    return [month, rows];
+  }));
+}
+
 function columnName(index) {
   let value = index + 1;
   let result = '';
@@ -53,39 +91,44 @@ function locateDateTitle(values, date) {
  * the report date. The current DC block is converted from legacy week labels
  * to rolling-day labels without touching its existing time-target formula.
  */
-export function buildWeeklySummaryWrites({ sourceRows, targetValues, reportDate, sheetName }) {
+export function buildWeeklySummaryWrites({ sourceRows, sourceRowsByMonth, targetValues, reportDate, sheetName }) {
   const dates = dateSequence(reportDate);
-
-  const sourceByDate = new Map();
-  // Results remain in the original table. Revised goals are a separate
-  // date-indexed table starting at sheet row 43, and may have blank results.
-  for (const row of sourceRows.slice(0, 42)) {
-    const key = dateKeyFromCell(row?.[0]);
-    if (!key || sourceByDate.has(key)) continue;
-    try {
-      // The source sheet contains multiple tables with repeated dates. Keep
-      // the first row that has every weekly input, and ignore later partial
-      // rows (for example a duplicate date with a blank sales result).
-      [2, 10].forEach((column) => numberValue(row?.[column], `${key} source result`));
-      sourceByDate.set(key, row);
-    } catch {
-      // A later duplicate row may be incomplete even when an earlier
-      // summary row for the same date contains the complete metrics.
+  const indexesByMonth = new Map();
+  for (const month of new Set(dates.map(monthKey))) {
+    const rows = sourceRowsByMonth ? sourceRowsByMonth[month] : sourceRows;
+    if (!rows) return { writes: [], skipped: `Source month ${month} is missing.` };
+    const sourceByDate = new Map();
+    // Results remain in the original table. Revised goals are a separate
+    // date-indexed table starting at sheet row 43, and may have blank results.
+    for (const row of rows.slice(0, 42)) {
+      const key = dateKeyFromCell(row?.[0]);
+      if (!key || sourceByDate.has(key)) continue;
+      try {
+        // The source sheet contains multiple tables with repeated dates. Keep
+        // the first row that has every weekly input, and ignore later partial
+        // rows (for example a duplicate date with a blank sales result).
+        [2, 10].forEach((column) => numberValue(row?.[column], `${key} source result`));
+        sourceByDate.set(key, row);
+      } catch {
+        // A later duplicate row may be incomplete even when an earlier
+        // summary row for the same date contains the complete metrics.
+      }
     }
-  }
 
-  const revisedGoalsByDate = new Map();
-  for (const row of sourceRows.slice(42)) {
-    const key = dateKeyFromCell(row?.[0]);
-    if (!key || revisedGoalsByDate.has(key)) continue;
-    try {
-      revisedGoalsByDate.set(key, {
-        sales: numberValue(row?.[1], `${key} revised sales target (B43+)`),
-        kpi: numberValue(row?.[9], `${key} revised KPI target (J43+)`),
-      });
-    } catch {
-      // Never substitute the old target when a revised target is incomplete.
+    const revisedGoalsByDate = new Map();
+    for (const row of rows.slice(42)) {
+      const key = dateKeyFromCell(row?.[0]);
+      if (!key || revisedGoalsByDate.has(key)) continue;
+      try {
+        revisedGoalsByDate.set(key, {
+          sales: numberValue(row?.[1], `${key} revised sales target (B43+)`),
+          kpi: numberValue(row?.[9], `${key} revised KPI target (J43+)`),
+        });
+      } catch {
+        // Never substitute the old target when a revised target is incomplete.
+      }
     }
+    indexesByMonth.set(month, { sourceByDate, revisedGoalsByDate });
   }
 
   const reportParts = reportDate.split('-').map(Number);
@@ -119,6 +162,7 @@ export function buildWeeklySummaryWrites({ sourceRows, targetValues, reportDate,
   const writes = [];
   for (const [index, date] of dates.entries()) {
     const key = `${date.getUTCMonth() + 1}/${date.getUTCDate()}`;
+    const { sourceByDate, revisedGoalsByDate } = indexesByMonth.get(monthKey(date));
     const source = sourceByDate.get(key);
     if (!source) return { writes: [], skipped: `Source row for ${key} is missing.` };
     const revisedGoal = revisedGoalsByDate.get(key);

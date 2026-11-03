@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildWeeklySummaryWrites } from './weekly-summary.js';
+import { buildWeeklySummaryWrites, loadWeeklySummarySources } from './weekly-summary.js';
 
 function makeSheet(legacy = false, preserveFormula = true) {
   const values = Array.from({ length: 40 }, () => Array(52).fill(''));
@@ -126,4 +126,81 @@ test('refuses to overwrite an occupied new summary area', () => {
   const result = buildWeeklySummaryWrites({ sourceRows, targetValues, reportDate: '2026-10-13', sheetName: '目標＆振分' });
   assert.deepEqual(result.writes, []);
   assert.match(result.skipped, /occupied/);
+});
+
+function monthRows(month, days, sales, kpi) {
+  const rows = Array.from({length:80}, () => []);
+  rows[0] = [`26年${month}月`];
+  days.forEach((day, index) => {
+    rows[index + 4] = [`${month}/${day}`, 999999, sales, '', '', '', '', '', '', 999999, kpi];
+    rows[index + 42] = [`${month}/${day}`, sales + 10, '', '', '', '', '', '', '', kpi + 5];
+  });
+  return rows;
+}
+
+function crossingTarget() {
+  const rows = Array.from({length:32}, () => Array(52).fill(''));
+  ['10/26','10/27','10/28','10/29','10/30','10/31','11/1','11/2'].forEach((date,index) => {
+    rows[index*4][0] = date;
+    rows[index*4][1] = 'DC';
+    rows[index*4+2][35] = 80;
+  });
+  rows[28][16] = '７日間目標'; rows[28][19] = '７日間結果';
+  rows[29][15] = '売上'; rows[30][15] = 'KPI'; rows[31][15] = '時間数';
+  return rows;
+}
+
+test('cross-month summary keeps original results and row-43 revised targets separate by month', () => {
+  const sourceRowsByMonth = {
+    '2026-10':monthRows(10,[26,27,28,29,30,31],100,50),
+    '2026-11':monthRows(11,[1],200,100),
+  };
+  const result = buildWeeklySummaryWrites({sourceRowsByMonth,targetValues:crossingTarget(),reportDate:'2026-11-02',sheetName:'目標＆振分'});
+  assert.deepEqual(result.summary,{salesGoal:870,salesResult:800,kpiGoal:435,kpiResult:400,hoursGoal:17.4,hoursResult:560,days:7});
+  assert.equal(writeValue(result,'Q30'),870);
+  assert.equal(writeValue(result,'T30'),800);
+  assert.equal(writeValue(result,'W30'),'⬤');
+  assert.equal(writeValue(result,'AC30'),'⬤');
+  assert.equal(result.writes.some(write => /AW|AY/.test(write.range)),false);
+});
+
+test('missing prior month produces no writes rather than reusing the current month', () => {
+  const result = buildWeeklySummaryWrites({sourceRowsByMonth:{'2026-11':monthRows(11,[1],200,100)},targetValues:crossingTarget(),reportDate:'2026-11-02',sheetName:'目標＆振分'});
+  assert.deepEqual(result.writes,[]);
+  assert.match(result.skipped,/2026-10/);
+});
+
+function sourceApi(titles, rowsByTitle) {
+  const calls = [];
+  return {calls,spreadsheets:{
+    get:async () => ({data:{sheets:titles.map(title => ({properties:{title}}))}}),
+    values:{batchGet:async args => {
+      calls.push(args);
+      return {data:{valueRanges:args.ranges.map(range => ({values:rowsByTitle[range.split("'")[1]]}))}};
+    }},
+  }};
+}
+
+test('loader reads October archive and current November table in one bounded batch', async () => {
+  const oct=monthRows(10,[31],100,50),nov=monthRows(11,[1],200,100);
+  const sheets=sourceApi(['総合','2610総合'],{'総合':nov,'2610総合':oct});
+  const result=await loadWeeklySummarySources({sheets,spreadsheetId:'source',reportDate:'2026-11-02'});
+  assert.deepEqual(result,{'2026-10':oct,'2026-11':nov});
+  assert.deepEqual(sheets.calls[0].ranges,["'2610総合'!A1:K80","'総合'!A1:K80"]);
+});
+
+test('loader handles a year boundary and validates both source month headings', async () => {
+  const dec=[['26年12月']],jan=[['2027年1月']];
+  const sheets=sourceApi(['総合','2612総合'],{'総合':jan,'2612総合':dec});
+  assert.deepEqual(await loadWeeklySummarySources({sheets,spreadsheetId:'source',reportDate:'2027-01-02'}),{'2026-12':dec,'2027-01':jan});
+});
+
+test('missing archive refuses to treat November 総合 as October', async () => {
+  const sheets=sourceApi(['総合'],{'総合':[['26年11月']]});
+  await assert.rejects(loadWeeklySummarySources({sheets,spreadsheetId:'source',reportDate:'2026-11-02'}),/not 2026-10/);
+});
+
+test('loader rejects an archive with the wrong month heading', async () => {
+  const sheets=sourceApi(['総合','2610総合'],{'総合':[['26年11月']],'2610総合':[['26年9月']]});
+  await assert.rejects(loadWeeklySummarySources({sheets,spreadsheetId:'source',reportDate:'2026-11-02'}),/not 2026-10/);
 });
