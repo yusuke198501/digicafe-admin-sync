@@ -2,6 +2,10 @@ name: シート8 30分集計・GA4 5分集計
 on:
   workflow_dispatch:
     inputs:
+      final_previous_day:
+        description: 'Save previous day final totals as 23:59'
+        type: boolean
+        default: false
       cohort_graph_setup:
         description: 'Set up cohort login charts and comparison only (no snapshot append)'
         type: boolean
@@ -34,9 +38,10 @@ jobs:
         with:
           node-version: 22
       - run: npm install --ignore-scripts --no-audit --no-fund
-      - run: node --test scripts/ga4-snapshots.test.mjs scripts/cohort-login-charts.test.mjs scripts/cohort-logins.test.js scripts/sync-sheet8.test.js scripts/payment-points.test.js scripts/voluntary-leaves.test.js scripts/ga4-realtime.test.mjs scripts/ga4-chart.test.mjs scripts/all-received-chart.test.mjs scripts/expanded-chart.test.mjs scripts/expanded-chart.test.mjs
+      - run: node --test scripts/final-snapshot.test.mjs scripts/ga4-snapshots.test.mjs scripts/cohort-login-charts.test.mjs scripts/cohort-logins.test.js scripts/sync-sheet8.test.js scripts/payment-points.test.js scripts/voluntary-leaves.test.js scripts/ga4-realtime.test.mjs scripts/ga4-chart.test.mjs scripts/all-received-chart.test.mjs scripts/expanded-chart.test.mjs scripts/expanded-chart.test.mjs
       - run: node scripts/sync-sheet8.js
         env:
+          FINAL_PREVIOUS_DAY: ${{ inputs.final_previous_day }}
           COHORT_GRAPH_SETUP_ONLY: ${{ inputs.cohort_graph_setup }}
           GA4_PROBE_ONLY: ${{ inputs.ga4_probe }}
           GA4_AUTH_MODE: 'service_account'
