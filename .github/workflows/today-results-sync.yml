@@ -1,6 +1,11 @@
 name: 本日結果更新
 on:
   workflow_dispatch:
+    inputs:
+      feliz_only:
+        description: Test or retry only Feliz without repeating the DC update
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -20,6 +25,7 @@ jobs:
           node-version: 22
       - run: npm install
       - run: npm run sync-mailnum2
+        if: ${{ inputs.feliz_only != true }}
         env:
           TODAY_RESULTS_ONLY: '1'
           LOG_ACCOUNT: ${{ secrets.LOG_ACCOUNT }}
