@@ -87,7 +87,14 @@ function form(html, selector, url, replacements = {}) {
 export async function fetchFelizMetrics(date) {
   const account = required('FELIZ_ACCOUNT'), password = required('FELIZ_PASSWORD');
   const client = wrapper(axios.create({ jar: new CookieJar(), withCredentials: true, timeout: 60000 }));
-  const request = (label, op) => networkRetry(`Feliz: ${label}`, op, { attempts: 3 });
+  const request = async (label, op) => {
+    try { return await networkRetry(`Feliz: ${label}`, op, { attempts: 3 }); }
+    catch (error) {
+      const status = error.response?.status;
+      // Never print Axios config/body: they contain the login password.
+      throw new Error(`Feliz: ${label} failed (${Number.isInteger(status) ? `HTTP ${status}` : 'network error'})`);
+    }
+  };
   const login = await request('login page', () => client.get(BASE));
   const loginForm = form(login.data, 'input[type=password]', BASE, { account, pass: password });
   await request('login', () => client.post(loginForm.url, loginForm.body));
