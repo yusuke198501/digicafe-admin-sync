@@ -26,3 +26,12 @@ jobs:
           LOG_PASSWORD: ${{ secrets.LOG_PASSWORD }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           SPREADSHEET_ID: ${{ secrets.MAILNUM2_SPREADSHEET_ID }}
+
+      - name: Feliz 本日結果更新
+        run: node scripts/sync-feliz-today-results.js
+        env:
+          FELIZ_ACCOUNT: ${{ secrets.FELIZ_ACCOUNT }}
+          FELIZ_PASSWORD: ${{ secrets.FELIZ_PASSWORD }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          SPREADSHEET_ID: ${{ secrets.MAILNUM2_SPREADSHEET_ID }}
+
