@@ -36,7 +36,7 @@ jobs:
       - name: Configure Feliz host resolution
         run: |
           printf '%s\n' '163.43.117.167 mkt.feliznet.jp' '27.133.131.107 ad.feliznet.jp' | sudo tee -a /etc/hosts
-          getent hosts mkt.feliznet.jp ad.feliznet.jp
+          getent ahostsv4 mkt.feliznet.jp ad.feliznet.jp
 
       - name: Feliz 本日結果更新
         run: node scripts/sync-feliz-today-results.js
