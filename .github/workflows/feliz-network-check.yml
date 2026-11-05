@@ -1,0 +1,18 @@
+name: Feliz network check
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Show outbound IP and check Feliz origin
+        run: |
+          printf 'Checked at UTC: '
+          date -u +%FT%TZ
+          printf 'Outbound IPv4: '
+          curl --ipv4 --fail --silent --show-error --max-time 20 https://api.ipify.org
+          printf '\n'
+          curl --ipv4 --resolve mkt.feliznet.jp:443:163.43.117.167 --silent --show-error --max-time 20 --output /dev/null --write-out 'Feliz HTTP=%{http_code} destination=%{remote_ip}\n' https://mkt.feliznet.jp/
