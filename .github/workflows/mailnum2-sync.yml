@@ -62,19 +62,3 @@ jobs:
           PHPLITEADMIN_PASSWORD: ${{ secrets.PHPLITEADMIN_PASSWORD }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           SPREADSHEET_ID: ${{ secrets.MAILNUM2_SPREADSHEET_ID }}
-
-      - name: Configure Feliz host resolution
-        run: |
-          printf '%s\n' '163.43.117.167 mkt.feliznet.jp' '27.133.131.107 ad.feliznet.jp' | sudo tee -a /etc/hosts
-          getent ahostsv4 mkt.feliznet.jp ad.feliznet.jp
-
-      - name: Feliz 本日結果更新
-        run: node scripts/sync-feliz-today-results.js
-        env:
-          NODE_OPTIONS: --dns-result-order=ipv4first
-          FELIZ_ACCOUNT: ${{ secrets.FELIZ_ACCOUNT }}
-          FELIZ_PASSWORD: ${{ secrets.FELIZ_PASSWORD }}
-          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
-          SPREADSHEET_ID: ${{ secrets.MAILNUM2_SPREADSHEET_ID }}
-
-

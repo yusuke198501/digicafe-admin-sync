@@ -1,11 +1,6 @@
 name: 本日結果更新
 on:
   workflow_dispatch:
-    inputs:
-      feliz_only:
-        description: Test or retry only Feliz without repeating the DC update
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -25,27 +20,9 @@ jobs:
           node-version: 22
       - run: npm install
       - run: npm run sync-mailnum2
-        if: ${{ inputs.feliz_only != true }}
         env:
           TODAY_RESULTS_ONLY: '1'
           LOG_ACCOUNT: ${{ secrets.LOG_ACCOUNT }}
           LOG_PASSWORD: ${{ secrets.LOG_PASSWORD }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           SPREADSHEET_ID: ${{ secrets.MAILNUM2_SPREADSHEET_ID }}
-
-      - name: Configure Feliz host resolution
-        run: |
-          printf '%s\n' '163.43.117.167 mkt.feliznet.jp' '27.133.131.107 ad.feliznet.jp' | sudo tee -a /etc/hosts
-          getent ahostsv4 mkt.feliznet.jp ad.feliznet.jp
-          curl --ipv4 --resolve mkt.feliznet.jp:443:163.43.117.167 --silent --show-error --output /dev/null --write-out 'Feliz HTTPS HTTP=%{http_code} remote=%{remote_ip}\n' https://mkt.feliznet.jp/
-
-      - name: Feliz 本日結果更新
-        run: node scripts/sync-feliz-today-results.js
-        env:
-          NODE_OPTIONS: --dns-result-order=ipv4first
-          FELIZ_ACCOUNT: ${{ secrets.FELIZ_ACCOUNT }}
-          FELIZ_PASSWORD: ${{ secrets.FELIZ_PASSWORD }}
-          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
-          SPREADSHEET_ID: ${{ secrets.MAILNUM2_SPREADSHEET_ID }}
-
-
