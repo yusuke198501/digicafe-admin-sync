@@ -71,6 +71,7 @@ jobs:
       - name: Feliz 本日結果更新
         run: node scripts/sync-feliz-today-results.js
         env:
+          NODE_OPTIONS: --dns-result-order=ipv4first
           FELIZ_ACCOUNT: ${{ secrets.FELIZ_ACCOUNT }}
           FELIZ_PASSWORD: ${{ secrets.FELIZ_PASSWORD }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}

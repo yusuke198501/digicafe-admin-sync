@@ -94,7 +94,8 @@ export async function fetchFelizMetrics(date) {
     catch (error) {
       const status = error.response?.status;
       // Never print Axios config/body: they contain the login password.
-      throw new Error(`Feliz: ${label} failed (${Number.isInteger(status) ? `HTTP ${status}` : 'network error'})`);
+      const peer = error.response?.request?.socket?.remoteAddress;
+      throw new Error(`Feliz: ${label} failed (${Number.isInteger(status) ? `HTTP ${status}` : 'network error'}${peer ? `; peer=${peer}` : ''})`);
     }
   };
   const login = await request('login page', () => client.get(BASE));
