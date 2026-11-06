@@ -19,7 +19,9 @@ test('daily report can be inside a wrapper element', () => {
 });
 test('only AX in the authorized date block is written, missing data preserves it', () => {
   assert.deepEqual(abceReceiveWrites('目標＆振分',{iso:'2026-11-06'},3882,100),[{range:"'目標＆振分'!AX3882",values:[[100]]}]);
-  assert.deepEqual(abceReceiveWrites('目標＆振分',{iso:'2026-11-07'},3922,100),[]);
+  assert.deepEqual(abceReceiveWrites('目標＆振分',{iso:'2026-11-05'},3842,100),[]);
+  assert.deepEqual(abceReceiveWrites('目標＆振分',{iso:'2026-11-07'},3922,200),[{range:"'目標＆振分'!AX3922",values:[[200]]}]);
+  assert.deepEqual(abceReceiveWrites('目標＆振分',{iso:'2026-12-01'},4882,0),[{range:"'目標＆振分'!AX4882",values:[[0]]}]);
   for (const invalid of [null,undefined,NaN,-1]) assert.deepEqual(abceReceiveWrites('目標＆振分',{iso:'2026-11-06'},3882,invalid),[]);
 });
 test('actual today-only update keeps staff columns and moves timestamp while writing AX summary', async () => {
@@ -31,7 +33,10 @@ test('actual today-only update keeps staff columns and moves timestamp while wri
   const sheets={spreadsheets:{values:{get:async()=>({data:{values:rows}}),batchUpdate:async(req)=>{written=req.requestBody.data;}}}};
   const context={google:{auth:{GoogleAuth:function(){}},sheets:()=>sheets},required:key=>key==='GOOGLE_SERVICE_ACCOUNT_JSON'?'{}':'sheet',loadNameToId:async()=>new Map([['担当者','id']]),currentTimeJst:()=> '17:42',SHEET_NAMES:['目標＆振分'],text:x=>String(x??'').replace(/\s/g,''),abceReceiveWrites};
   const run=vm.runInNewContext(functions+'\n'+update+'\nupdateTodayResults',context);
-  await run(new Map([['id',{interaction:12,individual:3,broadcast:4}]]),{iso:'2026-11-06',label:'11/6'},100);
-  const writes=JSON.parse(JSON.stringify(written));
-  assert.deepEqual(writes,[{range:"'目標＆振分'!AW5:AY5",values:[[12,3,4]]},{range:"'目標＆振分'!AX2",values:[[100]]},{range:"'目標＆振分'!AV2",values:[['17:42']]}]);
+  for (const date of [{iso:'2026-11-06',label:'11/6'},{iso:'2026-11-07',label:'11/7'},{iso:'2026-12-01',label:'12/1'}]) {
+    rows[0][0]=date.label;
+    await run(new Map([['id',{interaction:12,individual:3,broadcast:4}]]),date,100);
+    const writes=JSON.parse(JSON.stringify(written));
+    assert.deepEqual(writes,[{range:"'目標＆振分'!AW5:AY5",values:[[12,3,4]]},{range:"'目標＆振分'!AX2",values:[[100]]},{range:"'目標＆振分'!AV2",values:[['17:42']]}]);
+  }
 });
