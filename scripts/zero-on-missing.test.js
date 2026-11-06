@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { numberOrZero, valueOrDefault, requestOrNull } from './zero-on-missing.js';
 import { reportMetrics } from './sync-mailnum2.js';
+import { abceReceiveWrites } from './box-receive-summary.js';
 
 test('missing and invalid numeric metrics become zero without leaking errors', () => {
   const logs=[];
@@ -21,6 +22,17 @@ test('missing report tables produce numeric hourly zeros, not undefined writes',
   assert.ok(result.accountSendStats instanceof Map);
   assert.ok(Object.entries(result).filter(([k])=>k!=='accountSendStats').every(([,v])=>v===0));
   assert.equal(result.grossDau,0);assert.equal(result.boxQDau,0);
+  assert.equal(Object.hasOwn(result, 'abceReceiveTotal'), false);
+  assert.deepEqual(abceReceiveWrites('目標＆振分', {iso:'2026-11-07'},3922,result.abceReceiveTotal),[]);
+});
+
+test('daily ABCE receive totals are numeric when available, including a real zero', () => {
+  for (const [cells, expected] of [[[10,20,30,40],100],[[0,0,0,0],0]]) {
+    const html='<h3>UF_MKT系データ(フォルダ別/日毎)</h3><table><tr><th>日付</th><th>A受信</th><th>B受信</th><th>C受信</th><th>E受信</th></tr><tr><td>2026/11/07</td>'+cells.map(n=>`<td>${n}</td>`).join('')+'</tr></table>';
+    const result=reportMetrics(html,{display:'2026/11/07',iso:'2026-11-07'},9);
+    assert.equal(result.abceReceiveTotal,expected);
+    assert.deepEqual(abceReceiveWrites('目標＆振分',{iso:'2026-11-07'},3922,result.abceReceiveTotal),[{range:"'目標＆振分'!AX3922",values:[[expected]]}]);
+  }
 });
 test('available folder hourly data survives missing daily/summary tables', () => {
   const html='<h3>UF_MKT系データ(フォルダ別/時間毎)</h3><table><tr><th>時刻</th><th>A受信</th><th>Aやり取り</th><th>やり取り送信</th></tr><tr><td>8時</td><td>12</td><td>7</td><td>7</td></tr><tr><td>9時</td><td>4</td><td>3</td><td>3</td></tr></table>';

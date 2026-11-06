@@ -536,8 +536,10 @@ export function reportMetrics(html, date, hour) {
   ), { grossDau: 0, ...Object.fromEntries(['A','B','C','E','I','J','M','Q'].map(box => [`box${box}Dau`,0])) });
   const accountHourlyStats = valueOrDefault('ログインアカウント別/時間毎', () => cumulativeLoginAccountStats(html, hour), { ufReceive:0, individualSend:0, individualReceive:0 });
   const hourly = (header) => numberOrZero(header, () => cumulativeHourlyMetric(hourlyRows, header, hour));
+  const abceReceiveTotal = valueOrDefault('ABCE日毎受信合計', () => parseAbceReceiveTotal(html, date.display), null);
   return {
-    abceReceiveTotal: valueOrDefault('ABCE日毎受信合計', () => parseAbceReceiveTotal(html, date.display), null),
+    // Missing optional summaries must not enter the numeric metrics or overwrite AX.
+    ...(abceReceiveTotal === null ? {} : { abceReceiveTotal }),
     receivemails: numberOrZero('全体受信', () => summaryReportMetric($, '全体受信データ', ['メール総数'])),
     ...boxDau,
     mktReceivemails: accountHourlyStats.ufReceive,
