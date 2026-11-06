@@ -1,3 +1,4 @@
+import { parseAbceReceiveTotal, abceReceiveWrites } from './box-receive-summary.js';
 import axios from 'axios';
 import { pathToFileURL } from 'node:url';
 import { wrapper } from 'axios-cookiejar-support';
@@ -536,6 +537,7 @@ export function reportMetrics(html, date, hour) {
   const accountHourlyStats = valueOrDefault('ログインアカウント別/時間毎', () => cumulativeLoginAccountStats(html, hour), { ufReceive:0, individualSend:0, individualReceive:0 });
   const hourly = (header) => numberOrZero(header, () => cumulativeHourlyMetric(hourlyRows, header, hour));
   return {
+    abceReceiveTotal: valueOrDefault('ABCE日毎受信合計', () => parseAbceReceiveTotal(html, date.display), null),
     receivemails: numberOrZero('全体受信', () => summaryReportMetric($, '全体受信データ', ['メール総数'])),
     ...boxDau,
     mktReceivemails: accountHourlyStats.ufReceive,
@@ -610,7 +612,7 @@ async function fetchTodayResultStats(date) {
   });
   const response = await networkRetry('log.digicafe.jp: today results', () => client.get(`${REPORT_URL}?${query}`, { headers: REQUEST_HEADERS }));
   if (response.status !== 200) throw new Error(`管理画面データの取得に失敗しました（HTTP ${response.status}）。`);
-  return loginAccountDailyStats(response.data, date);
+  return { accountSendStats: loginAccountDailyStats(response.data, date), abceReceiveTotal: valueOrDefault('ABCE日毎受信合計', () => parseAbceReceiveTotal(response.data, date.display), null) };
 }
 
 function locateTargetRow(values, date, hour, sheetName) {
@@ -906,6 +908,7 @@ async function updateSheet(metrics, hour, date, canRunForSlot) {
             values: [[value]],
           })),
           { range: `'${sheetName}'!${date.iso === '2026-11-06' ? 'AV' : 'AW'}${todayResultTimeRow}`, values: [[executionTime]] },
+          ...abceReceiveWrites(sheetName, date, todayResultTimeRow, metrics.abceReceiveTotal),
           ...todayResultWrites,
           ...weeklyWrites,
         ],
@@ -916,7 +919,7 @@ async function updateSheet(metrics, hour, date, canRunForSlot) {
   return results;
 }
 
-async function updateTodayResults(accountSendStats, date) {
+async function updateTodayResults(accountSendStats, date, abceReceiveTotal) {
   const auth = new google.auth.GoogleAuth({
     credentials: JSON.parse(required('GOOGLE_SERVICE_ACCOUNT_JSON')),
     scopes: ['https://www.googleapis.com/auth/spreadsheets'],
@@ -940,6 +943,7 @@ async function updateTodayResults(accountSendStats, date) {
         values: [[stats.interaction, stats.individual, stats.broadcast]],
       };
     });
+    writes.push(...abceReceiveWrites(sheetName, date, todayResultTimeRow, abceReceiveTotal));
     writes.push({
       range: `'${sheetName}'!${date.iso === '2026-11-06' ? 'AV' : 'AW'}${todayResultTimeRow}`,
       values: [[executionTime]],
@@ -956,8 +960,8 @@ async function updateTodayResults(accountSendStats, date) {
 async function main() {
   if (process.env.TODAY_RESULTS_ONLY === '1') {
     const date = todayReportDate();
-    const accountSendStats = await fetchTodayResultStats(date);
-    const updatedSheets = await updateTodayResults(accountSendStats, date);
+    const { accountSendStats, abceReceiveTotal } = await fetchTodayResultStats(date);
+    const updatedSheets = await updateTodayResults(accountSendStats, date, abceReceiveTotal);
     const destination = updatedSheets.map(({ sheetName, todayResultCount }) => `${sheetName}: today results ${todayResultCount}`).join('; ');
     console.log(`${date.label} current totals -> ${destination}; source=${date.display}`);
     return;
