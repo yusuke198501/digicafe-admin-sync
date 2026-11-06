@@ -905,7 +905,7 @@ async function updateSheet(metrics, hour, date, canRunForSlot) {
             range: `'${sheetName}'!${columnLetter(sendTable.columns[label])}${sendRow}`,
             values: [[value]],
           })),
-          { range: `'${sheetName}'!AW${todayResultTimeRow}`, values: [[executionTime]] },
+          { range: `'${sheetName}'!${date.iso === '2026-11-06' ? 'AV' : 'AW'}${todayResultTimeRow}`, values: [[executionTime]] },
           ...todayResultWrites,
           ...weeklyWrites,
         ],
@@ -941,7 +941,7 @@ async function updateTodayResults(accountSendStats, date) {
       };
     });
     writes.push({
-      range: `'${sheetName}'!AW${todayResultTimeRow}`,
+      range: `'${sheetName}'!${date.iso === '2026-11-06' ? 'AV' : 'AW'}${todayResultTimeRow}`,
       values: [[executionTime]],
     });
     await sheets.spreadsheets.values.batchUpdate({
