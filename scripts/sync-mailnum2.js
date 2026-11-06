@@ -909,10 +909,13 @@ async function updateSheet(metrics, hour, date, canRunForSlot) {
             range: `'${sheetName}'!${columnLetter(sendTable.columns[label])}${sendRow}`,
             values: [[value]],
           })),
-          { range: `'${sheetName}'!${date.iso >= '2026-11-06' ? 'AV' : 'AW'}${todayResultTimeRow}`, values: [[executionTime]] },
-          ...abceReceiveWrites(sheetName, date, todayResultTimeRow, metrics.abceReceiveTotal),
-          ...todayResultWrites,
-          ...weeklyWrites,
+          // An explicit report date is a slot backfill, not a refresh of that day's staff results.
+          ...(process.env.REPORT_DATE ? [] : [
+            { range: `'${sheetName}'!${date.iso >= '2026-11-06' ? 'AV' : 'AW'}${todayResultTimeRow}`, values: [[executionTime]] },
+            ...abceReceiveWrites(sheetName, date, todayResultTimeRow, metrics.abceReceiveTotal),
+            ...todayResultWrites,
+            ...weeklyWrites,
+          ]),
         ],
       },
     });
