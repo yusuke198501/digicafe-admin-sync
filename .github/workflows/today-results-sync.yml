@@ -1,6 +1,11 @@
 name: 本日結果更新
 on:
   workflow_dispatch:
+    inputs:
+      report_date:
+        description: Target date (YYYY-MM-DD); omit for the current business day
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -22,6 +27,7 @@ jobs:
       - run: npm run sync-mailnum2
         env:
           TODAY_RESULTS_ONLY: '1'
+          REPORT_DATE: ${{ inputs.report_date || '' }}
           LOG_ACCOUNT: ${{ secrets.LOG_ACCOUNT }}
           LOG_PASSWORD: ${{ secrets.LOG_PASSWORD }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { abceReceiveWrites } from './box-receive-summary.js';
+import { accountStatsForTarget } from './today-results-other.js';
 
 async function collectWrites(backfill,receive=false) {
   const source=readFileSync(new URL('./sync-mailnum2.js',import.meta.url),'utf8');
@@ -16,7 +17,7 @@ async function collectWrites(backfill,receive=false) {
     locateBoxTargetRow:()=>({row:3902,columns:Object.fromEntries(boxes.map((b,i)=>[b,{receiveIndex:2+4*i,dauIndex:4+4*i}]))}),
     locateIndividualTargetRow:()=>({row:3902,columns:{send:33,receive:35}}),locateSendTable:()=>({columns:{A:11,B:12,C:13,E:14,'全体':19}}),
     // A staff row deliberately overlaps the slot row. It must still be excluded during a backfill.
-    locateTodayResultTargets:()=>[{row:3892,accountId:'id',name:'担当者',hasReceiveColumn:receive}],locateTodayResultTimeRow:()=>3882,abceReceiveWrites,
+    locateTodayResultTargets:()=>[{row:3892,accountId:'id',name:'担当者',hasReceiveColumn:receive}],locateTodayResultTimeRow:()=>3882,abceReceiveWrites,accountStatsForTarget,
     columnLetter:(n)=>{let s='';for(n++;n;n=Math.floor((n-1)/26))s=String.fromCharCode(65+(n-1)%26)+s;return s;}};
   const run=vm.runInNewContext(code+'\nupdateSheet',context);
   await run(metrics,24,{iso:'2026-11-06',label:'11/6'},()=>true);
