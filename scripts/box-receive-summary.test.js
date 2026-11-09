@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { parseAbceReceiveTotal, abceReceiveWrites } from './box-receive-summary.js';
+import { accountStatsForTarget } from './today-results-other.js';
 const html = (cells = ['10', '20', '30', '40']) => `<h3>UF_MKT系データ(フォルダ別/時間毎)</h3><table><tr><td>9時</td><td>999</td></tr></table><h3>UF_MKT系データ(フォルダ別/日毎)</h3><table><tr><th>日付</th><th>Q受信</th><th>C受信</th><th>A受信</th><th>E受信</th><th>B受信</th></tr><tr><td>2026/11/05</td><td>999</td><td>999</td><td>999</td><td>999</td><td>999</td></tr><tr><td>2026/11/06</td><td>999</td><td>${cells[2]}</td><td>${cells[0]}</td><td>${cells[3]}</td><td>${cells[1]}</td></tr></table>`;
 test('daily named columns exclude other dates, Q, and hourly totals', () => {
   assert.equal(parseAbceReceiveTotal(html(['1,000','20','30','40']), '2026/11/06'),1090);
@@ -32,6 +33,7 @@ test('actual today-only update keeps staff columns and moves timestamp while wri
   let written;
   const sheets={spreadsheets:{values:{get:async()=>({data:{values:rows}}),batchUpdate:async(req)=>{written=req.requestBody.data;}}}};
   const context={google:{auth:{GoogleAuth:function(){}},sheets:()=>sheets},required:key=>key==='GOOGLE_SERVICE_ACCOUNT_JSON'?'{}':'sheet',loadNameToId:async()=>new Map([['担当者','id']]),currentTimeJst:()=> '17:42',SHEET_NAMES:['目標＆振分'],text:x=>String(x??'').replace(/\s/g,''),abceReceiveWrites};
+  context.accountStatsForTarget=accountStatsForTarget;
   const run=vm.runInNewContext(functions+'\n'+update+'\nupdateTodayResults',context);
   for (const date of [{iso:'2026-11-06',label:'11/6'},{iso:'2026-11-07',label:'11/7'},{iso:'2026-12-01',label:'12/1'}]) {
     rows[0][0]=date.label;

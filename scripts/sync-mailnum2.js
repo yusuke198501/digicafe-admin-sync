@@ -1,4 +1,5 @@
 import { parseAbceReceiveTotal, abceReceiveWrites } from './box-receive-summary.js';
+import { accountStatsForTarget } from './today-results-other.js';
 import axios from 'axios';
 import { pathToFileURL } from 'node:url';
 import { wrapper } from 'axios-cookiejar-support';
@@ -124,6 +125,7 @@ async function workflowDispatchCreatedAt() {
 }
 
 function todayReportDate() {
+  if (process.env.REPORT_DATE) return parseExplicitReportDate(process.env.REPORT_DATE);
   const { year, month, day } = jstDateParts();
   const hour = Number(new Intl.DateTimeFormat('en-US', {
     timeZone: 'Asia/Tokyo', hourCycle: 'h23', hour: '2-digit',
@@ -774,13 +776,13 @@ function locateTodayResultTargets(values, date, nameToId, sheetName) {
   for (let index = titleIndex + 1; index < endIndex; index += 1) {
     // 本日結果の担当者名は、各日のDCブロック内で対応表に一致する名前として
     // 特定する。これにより結合セルの見出しが空として返っても影響を受けない。
-    const nameColumn = values[index].findIndex((cell) => nameToId.has(text(cell)));
+    const nameColumn = values[index].findIndex((cell) => nameToId.has(text(cell)) || text(cell) === 'その他');
     // 右側の本日結果エリアだけを対象にし、シフト表内の同名は除外する。
     if (nameColumn < 41) continue;
     const name = text(values[index][nameColumn]);
     const hasReceiveColumn = text(values[titleIndex + 2]?.[51]) === '受信';
     if (hasReceiveColumn && nameColumn !== 52) throw new Error('本日結果の受信列と担当者名の位置が一致しません。');
-    targets.push({ row: index + 1, name, accountId: nameToId.get(name), hasReceiveColumn });
+    targets.push({ row: index + 1, name, accountId: nameToId.get(name), hasReceiveColumn, isOther: name === 'その他' });
   }
   if (!targets.length) throw new Error(`${date.label} DC block の本日結果に更新対象者が見つかりません。`);
   return targets;
@@ -837,8 +839,8 @@ async function updateSheet(metrics, hour, date, canRunForSlot) {
     const sendRow = row;
     const todayResultTargets = locateTodayResultTargets(values, date, nameToId, sheetName);
     const todayResultTimeRow = locateTodayResultTimeRow(values, date, sheetName);
-    const todayResultWrites = todayResultTargets.flatMap((target) => {
-      const stats = metrics.accountSendStats.get(target.accountId);
+    const todayResultWrites = process.env.REPORT_DATE ? [] : todayResultTargets.flatMap((target) => {
+      const stats = accountStatsForTarget(target, todayResultTargets, metrics.accountSendStats);
       if (!stats) { console.warn('WARNING: 取得できない個人別本日結果は既存値を保持します。'); return []; }
       if (target.hasReceiveColumn && !Number.isFinite(stats.interactionReceive)) throw new Error(`${target.name} のやりとり受信を取得できませんでした。`);
       return [{
@@ -945,8 +947,9 @@ async function updateTodayResults(accountSendStats, date, abceReceiveTotal) {
     const targets = locateTodayResultTargets(values, date, nameToId, sheetName);
     const todayResultTimeRow = locateTodayResultTimeRow(values, date, sheetName);
     const writes = targets.map((target) => {
-      const stats = accountSendStats.get(target.accountId);
+      const stats = accountStatsForTarget(target, targets, accountSendStats);
       if (!stats) throw new Error(`${target.name} (${target.accountId}) の本日送信実績が管理画面にありません。`);
+      if (target.isOther) console.log(`${date.label} その他 -> ${JSON.stringify(stats)}; 全体=${JSON.stringify(accountSendStats.get('全体'))}`);
       if (target.hasReceiveColumn && !Number.isFinite(stats.interactionReceive)) throw new Error(`${target.name} のやりとり受信を取得できませんでした。`);
       return {
         range: `'${sheetName}'!AW${target.row}:${target.hasReceiveColumn ? 'AZ' : 'AY'}${target.row}`,

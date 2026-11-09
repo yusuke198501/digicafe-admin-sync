@@ -4,6 +4,7 @@ import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
 import * as cheerio from 'cheerio';
 import {abceReceiveWrites} from './box-receive-summary.js';
+import {accountStatsForTarget} from './today-results-other.js';
 const source=readFileSync(new URL('./sync-mailnum2.js',import.meta.url),'utf8');
 const text=x=>String(x??'').replace(/\s/g,'');
 test('account receive comes from interaction receive, excluding individual and broadcast receive',()=>{
@@ -24,6 +25,7 @@ test('today-only writes four results to AW:AZ, preserves name and treats a genui
   let written;
   const sheets={spreadsheets:{values:{get:async()=>({data:{values:rows}}),batchUpdate:async r=>written=r.requestBody.data}}};
   const context={google:{auth:{GoogleAuth:function(){}},sheets:()=>sheets},required:k=>k==='GOOGLE_SERVICE_ACCOUNT_JSON'?'{}':'sheet',loadNameToId:async()=>new Map([['担当者','id']]),currentTimeJst:()=> '11:05',SHEET_NAMES:['目標＆振分'],text,abceReceiveWrites};
+  context.accountStatsForTarget=accountStatsForTarget;
   const run=vm.runInNewContext(functions+'\n'+update+'\nupdateTodayResults',context);
   await run(new Map([['id',{interaction:12,individual:3,broadcast:4,interactionReceive:0}]]),{iso:'2026-11-09',label:'11/9'},100);
   assert.deepEqual(JSON.parse(JSON.stringify(written[0])),{range:"'目標＆振分'!AW5:AZ5",values:[[12,3,4,0]]});
