@@ -1,0 +1,31 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import vm from 'node:vm';
+import * as cheerio from 'cheerio';
+import {abceReceiveWrites} from './box-receive-summary.js';
+const source=readFileSync(new URL('./sync-mailnum2.js',import.meta.url),'utf8');
+const text=x=>String(x??'').replace(/\s/g,'');
+test('account receive comes from interaction receive, excluding individual and broadcast receive',()=>{
+  const functions=source.slice(source.indexOf('function reportRows('),source.indexOf('function loginAccountSend('));
+  const run=vm.runInNewContext(functions+'\nloginAccountDailyStats',{cheerio,text});
+  const labels=['やり取り送信','やり取り受信','個別送信','個別受信','同報配信キャラ数','同報配信','同報受信'];
+  const html='<h3>UF_MKT系データ(ログインアカウント別/日毎)</h3><table><tr><td></td><td colspan="7">全体</td><td colspan="7">id</td></tr><tr>'+[...labels,...labels].map(v=>`<th>${v}</th>`).join('')+'</tr><tr><td>2026/11/09</td>'+[1,2,3,4,5,6,7,12,34,56,78,1,90,4].map(v=>`<td>${v}</td>`).join('')+'</tr></table>';
+  const stats=run(html,{display:'2026/11/09'}).get('id');
+  assert.equal(stats.interactionReceive,34);
+  assert.equal(stats.interaction,12);
+  assert.equal(stats.individual,56);
+  assert.equal(stats.broadcast,90);
+});
+test('today-only writes four results to AW:AZ, preserves name and treats a genuine zero as zero',async()=>{
+  const functions=source.slice(source.indexOf('function locateTodayResultTargets('),source.indexOf('function currentTimeJst()'));
+  const update=source.slice(source.indexOf('async function updateTodayResults('),source.indexOf('async function main()'));
+  const rows=[['11/9(月)','DC'],[],Array.from({length:53},(_,i)=>i===51?'受信':i===52?'実本数':''),[],Array.from({length:53},(_,i)=>i===52?'担当者':'')];
+  let written;
+  const sheets={spreadsheets:{values:{get:async()=>({data:{values:rows}}),batchUpdate:async r=>written=r.requestBody.data}}};
+  const context={google:{auth:{GoogleAuth:function(){}},sheets:()=>sheets},required:k=>k==='GOOGLE_SERVICE_ACCOUNT_JSON'?'{}':'sheet',loadNameToId:async()=>new Map([['担当者','id']]),currentTimeJst:()=> '11:05',SHEET_NAMES:['目標＆振分'],text,abceReceiveWrites};
+  const run=vm.runInNewContext(functions+'\n'+update+'\nupdateTodayResults',context);
+  await run(new Map([['id',{interaction:12,individual:3,broadcast:4,interactionReceive:0}]]),{iso:'2026-11-09',label:'11/9'},100);
+  assert.deepEqual(JSON.parse(JSON.stringify(written[0])),{range:"'目標＆振分'!AW5:AZ5",values:[[12,3,4,0]]});
+  await assert.rejects(()=>run(new Map([['id',{interaction:12,individual:3,broadcast:4}]]),{iso:'2026-11-09',label:'11/9'},100),/やりとり受信/);
+});

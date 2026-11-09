@@ -497,6 +497,7 @@ function loginAccountDailyStats(html, date) {
     const offset = index * groupWidth;
     return [text(account), {
       interaction: metricNumber(values[offset + interactionIndex], `${account} / やり取り送信`),
+      interactionReceive: metricNumber(values[offset + 1], `${account} / やり取り受信`),
       individual: metricNumber(values[offset + individualIndex], `${account} / 個別送信`),
       broadcast: metricNumber(values[offset + broadcastIndex], `${account} / 同報配信`),
     }];
@@ -777,7 +778,9 @@ function locateTodayResultTargets(values, date, nameToId, sheetName) {
     // 右側の本日結果エリアだけを対象にし、シフト表内の同名は除外する。
     if (nameColumn < 41) continue;
     const name = text(values[index][nameColumn]);
-    targets.push({ row: index + 1, name, accountId: nameToId.get(name) });
+    const hasReceiveColumn = text(values[titleIndex + 2]?.[51]) === '受信';
+    if (hasReceiveColumn && nameColumn !== 52) throw new Error('本日結果の受信列と担当者名の位置が一致しません。');
+    targets.push({ row: index + 1, name, accountId: nameToId.get(name), hasReceiveColumn });
   }
   if (!targets.length) throw new Error(`${date.label} DC block の本日結果に更新対象者が見つかりません。`);
   return targets;
@@ -820,7 +823,7 @@ async function updateSheet(metrics, hour, date, canRunForSlot) {
     }
   }
   for (const sheetName of SHEET_NAMES) {
-    const range = `'${sheetName}'!A:AZ`;
+    const range = `'${sheetName}'!A:BA`;
     const source = await sheets.spreadsheets.values.get({ spreadsheetId, range });
     const values = source.data.values ?? [];
     const target = locateTargetRow(values, date, hour, sheetName);
@@ -837,9 +840,10 @@ async function updateSheet(metrics, hour, date, canRunForSlot) {
     const todayResultWrites = todayResultTargets.flatMap((target) => {
       const stats = metrics.accountSendStats.get(target.accountId);
       if (!stats) { console.warn('WARNING: 取得できない個人別本日結果は既存値を保持します。'); return []; }
+      if (target.hasReceiveColumn && !Number.isFinite(stats.interactionReceive)) throw new Error(`${target.name} のやりとり受信を取得できませんでした。`);
       return [{
-        range: `'${sheetName}'!AW${target.row}:AY${target.row}`,
-        values: [[stats.interaction, stats.individual, stats.broadcast]],
+        range: `'${sheetName}'!AW${target.row}:${target.hasReceiveColumn ? 'AZ' : 'AY'}${target.row}`,
+        values: [[stats.interaction, stats.individual, stats.broadcast, ...(target.hasReceiveColumn ? [stats.interactionReceive] : [])]],
       }];
     });
     let weeklyWrites = [];
@@ -936,16 +940,17 @@ async function updateTodayResults(accountSendStats, date, abceReceiveTotal) {
   const results = [];
 
   for (const sheetName of SHEET_NAMES) {
-    const source = await sheets.spreadsheets.values.get({ spreadsheetId, range: `'${sheetName}'!A:AZ` });
+    const source = await sheets.spreadsheets.values.get({ spreadsheetId, range: `'${sheetName}'!A:BA` });
     const values = source.data.values ?? [];
     const targets = locateTodayResultTargets(values, date, nameToId, sheetName);
     const todayResultTimeRow = locateTodayResultTimeRow(values, date, sheetName);
     const writes = targets.map((target) => {
       const stats = accountSendStats.get(target.accountId);
       if (!stats) throw new Error(`${target.name} (${target.accountId}) の本日送信実績が管理画面にありません。`);
+      if (target.hasReceiveColumn && !Number.isFinite(stats.interactionReceive)) throw new Error(`${target.name} のやりとり受信を取得できませんでした。`);
       return {
-        range: `'${sheetName}'!AW${target.row}:AY${target.row}`,
-        values: [[stats.interaction, stats.individual, stats.broadcast]],
+        range: `'${sheetName}'!AW${target.row}:${target.hasReceiveColumn ? 'AZ' : 'AY'}${target.row}`,
+        values: [[stats.interaction, stats.individual, stats.broadcast, ...(target.hasReceiveColumn ? [stats.interactionReceive] : [])]],
       };
     });
     writes.push(...abceReceiveWrites(sheetName, date, todayResultTimeRow, abceReceiveTotal));

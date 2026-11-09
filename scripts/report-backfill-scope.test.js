@@ -4,19 +4,19 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { abceReceiveWrites } from './box-receive-summary.js';
 
-async function collectWrites(backfill) {
+async function collectWrites(backfill,receive=false) {
   const source=readFileSync(new URL('./sync-mailnum2.js',import.meta.url),'utf8');
   const code=source.slice(source.indexOf('async function updateSheet('),source.indexOf('async function updateTodayResults('));
   let written;
   const sheets={spreadsheets:{values:{get:async()=>({data:{values:[]}}),batchUpdate:async(req)=>{written=req.requestBody.data;}}}};
   const boxes=['A','B','C','E','I','J','M','Q'];
-  const metrics=new Proxy({accountSendStats:new Map([['id',{interaction:10,individual:2,broadcast:3}]]),registrationMetrics:{registrations:5,ageVerifications:2},abceReceiveTotal:100},{get:(target,key)=>key in target?target[key]:1});
+  const metrics=new Proxy({accountSendStats:new Map([['id',{interaction:10,individual:2,broadcast:3,interactionReceive:7}]]),registrationMetrics:{registrations:5,ageVerifications:2},abceReceiveTotal:100},{get:(target,key)=>key in target?target[key]:1});
   const context={google:{auth:{GoogleAuth:function(){}},sheets:()=>sheets},required:key=>key==='GOOGLE_SERVICE_ACCOUNT_JSON'?'{}':'sheet',loadNameToId:async()=>new Map(),currentTimeJst:()=> '08:50',SHEET_NAMES:['目標＆振分'],process:{env:{REPORT_DATE:backfill?'2026-11-06':''}},console,
     locateTargetRow:()=>({row:3892,metricColumns:{grossReceiveIndex:2,ufReceiveIndex:4,grossDauIndex:8},registrationColumns:{registrations:23,ageVerifications:25,newMaleReceive:27,newMaleDau:29}}),
     locateBoxTargetRow:()=>({row:3902,columns:Object.fromEntries(boxes.map((b,i)=>[b,{receiveIndex:2+4*i,dauIndex:4+4*i}]))}),
     locateIndividualTargetRow:()=>({row:3902,columns:{send:33,receive:35}}),locateSendTable:()=>({columns:{A:11,B:12,C:13,E:14,'全体':19}}),
     // A staff row deliberately overlaps the slot row. It must still be excluded during a backfill.
-    locateTodayResultTargets:()=>[{row:3892,accountId:'id',name:'担当者'}],locateTodayResultTimeRow:()=>3882,abceReceiveWrites,
+    locateTodayResultTargets:()=>[{row:3892,accountId:'id',name:'担当者',hasReceiveColumn:receive}],locateTodayResultTimeRow:()=>3882,abceReceiveWrites,
     columnLetter:(n)=>{let s='';for(n++;n;n=Math.floor((n-1)/26))s=String.fromCharCode(65+(n-1)%26)+s;return s;}};
   const run=vm.runInNewContext(code+'\nupdateSheet',context);
   await run(metrics,24,{iso:'2026-11-06',label:'11/6'},()=>true);
@@ -39,4 +39,10 @@ test('ordinary scheduled run still updates staff results, timestamp, and daily r
   assert.ok(writes.some(w=>w.range==="'目標＆振分'!AW3892:AY3892"));
   assert.ok(writes.some(w=>w.range==="'目標＆振分'!AV3882"));
   assert.ok(writes.some(w=>w.range==="'目標＆振分'!AX3882"));
+});
+
+test('new layout writes interaction receive to AZ while leaving the staff name in BA untouched',async()=>{
+  const writes=await collectWrites(false,true);
+  assert.deepEqual(writes.find(w=>w.range==="'目標＆振分'!AW3892:AZ3892")?.values,[[10,2,3,7]]);
+  assert.ok(!writes.some(w=>w.range.includes('BA3892')));
 });
