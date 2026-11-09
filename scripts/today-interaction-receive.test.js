@@ -17,6 +17,8 @@ test('account receive comes from interaction receive, excluding individual and b
   assert.equal(stats.interaction,12);
   assert.equal(stats.individual,56);
   assert.equal(stats.broadcast,90);
+  assert.equal(stats.individualReceive,78);
+  assert.equal(stats.broadcastReceive,4);
 });
 test('today-only writes four results to AW:AZ, preserves name and treats a genuine zero as zero',async()=>{
   const functions=source.slice(source.indexOf('function locateTodayResultTargets('),source.indexOf('function currentTimeJst()'));
