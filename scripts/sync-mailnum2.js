@@ -782,13 +782,14 @@ function locateTodayResultTargets(values, date, nameToId, sheetName) {
     // 右側の本日結果エリアだけを対象にし、シフト表内の同名は除外する。
     if (nameColumn < 41) continue;
     const name = text(values[index][nameColumn]);
-    const hasReceiveColumn = text(values[titleIndex + 2]?.[51]) === '受信';
-    const individualReceiveHeader = text(values[titleIndex + 2]?.[52]) === '個別受信';
-    const broadcastReceiveHeader = text(values[titleIndex + 2]?.[53]) === '同報受信';
+    const resultOffset = text(values[titleIndex + 2]?.[48]) === '受信目標' ? 1 : 0;
+    const hasReceiveColumn = text(values[titleIndex + 2]?.[51 + resultOffset]) === '受信';
+    const individualReceiveHeader = text(values[titleIndex + 2]?.[52 + resultOffset]) === '個別受信';
+    const broadcastReceiveHeader = text(values[titleIndex + 2]?.[53 + resultOffset]) === '同報受信';
     if (individualReceiveHeader !== broadcastReceiveHeader || (individualReceiveHeader && !hasReceiveColumn)) throw new Error('本日結果の受信内訳見出しが不完全です。');
     const hasDetailedReceiveColumns = individualReceiveHeader && broadcastReceiveHeader;
-    if (hasReceiveColumn && nameColumn !== (hasDetailedReceiveColumns ? 54 : 52)) throw new Error('本日結果の受信列と担当者名の位置が一致しません。');
-    targets.push({ row: index + 1, name, accountId: nameToId.get(name), hasReceiveColumn, hasDetailedReceiveColumns, isOther: name === 'その他' });
+    if (hasReceiveColumn && nameColumn !== (hasDetailedReceiveColumns ? 54 : 52) + resultOffset) throw new Error('本日結果の受信列と担当者名の位置が一致しません。');
+    targets.push({ row: index + 1, name, accountId: nameToId.get(name), hasReceiveColumn, hasDetailedReceiveColumns, resultOffset, isOther: name === 'その他' });
   }
   if (!targets.length) throw new Error(`${date.label} DC block の本日結果に更新対象者が見つかりません。`);
   return targets;
@@ -831,7 +832,7 @@ async function updateSheet(metrics, hour, date, canRunForSlot) {
     }
   }
   for (const sheetName of SHEET_NAMES) {
-    const range = `'${sheetName}'!A:BC`;
+    const range = `'${sheetName}'!A:BD`;
     const source = await sheets.spreadsheets.values.get({ spreadsheetId, range });
     const values = source.data.values ?? [];
     const target = locateTargetRow(values, date, hour, sheetName);
@@ -851,7 +852,7 @@ async function updateSheet(metrics, hour, date, canRunForSlot) {
       if (target.hasReceiveColumn && !Number.isFinite(stats.interactionReceive)) throw new Error(`${target.name} のやりとり受信を取得できませんでした。`);
       if (target.hasDetailedReceiveColumns && [stats.individualReceive, stats.broadcastReceive].some(v=>!Number.isFinite(v))) throw new Error(`${target.name} の受信内訳を取得できませんでした。`);
       return [{
-        range: `'${sheetName}'!AW${target.row}:${target.hasDetailedReceiveColumns ? 'BB' : target.hasReceiveColumn ? 'AZ' : 'AY'}${target.row}`,
+        range: `'${sheetName}'!${target.resultOffset ? 'AX' : 'AW'}${target.row}:${target.hasDetailedReceiveColumns ? (target.resultOffset ? 'BC' : 'BB') : target.hasReceiveColumn ? (target.resultOffset ? 'BA' : 'AZ') : (target.resultOffset ? 'AZ' : 'AY')}${target.row}`,
         values: [[stats.interaction, stats.individual, stats.broadcast, ...(target.hasReceiveColumn ? [stats.interactionReceive] : []), ...(target.hasDetailedReceiveColumns ? [stats.individualReceive, stats.broadcastReceive] : [])]],
       }];
     });
@@ -924,8 +925,8 @@ async function updateSheet(metrics, hour, date, canRunForSlot) {
           })),
           // An explicit report date is a slot backfill, not a refresh of that day's staff results.
           ...(process.env.REPORT_DATE ? [] : [
-            { range: `'${sheetName}'!${date.iso >= '2026-11-06' ? 'AV' : 'AW'}${todayResultTimeRow}`, values: [[executionTime]] },
-            ...abceReceiveWrites(sheetName, date, todayResultTimeRow, metrics.abceReceiveTotal),
+            { range: `'${sheetName}'!${date.iso >= '2026-11-06' ? 'AV' : (todayResultTargets[0]?.resultOffset ? 'AX' : 'AW')}${todayResultTimeRow}`, values: [[executionTime]] },
+            ...abceReceiveWrites(sheetName, date, todayResultTimeRow, metrics.abceReceiveTotal, todayResultTargets[0]?.resultOffset || 0),
             ...todayResultWrites,
             ...weeklyWrites,
           ]),
@@ -949,7 +950,7 @@ async function updateTodayResults(accountSendStats, date, abceReceiveTotal) {
   const results = [];
 
   for (const sheetName of SHEET_NAMES) {
-    const source = await sheets.spreadsheets.values.get({ spreadsheetId, range: `'${sheetName}'!A:BC` });
+    const source = await sheets.spreadsheets.values.get({ spreadsheetId, range: `'${sheetName}'!A:BD` });
     const values = source.data.values ?? [];
     const targets = locateTodayResultTargets(values, date, nameToId, sheetName);
     const todayResultTimeRow = locateTodayResultTimeRow(values, date, sheetName);
@@ -960,13 +961,13 @@ async function updateTodayResults(accountSendStats, date, abceReceiveTotal) {
       if (target.hasReceiveColumn && !Number.isFinite(stats.interactionReceive)) throw new Error(`${target.name} のやりとり受信を取得できませんでした。`);
       if (target.hasDetailedReceiveColumns && [stats.individualReceive, stats.broadcastReceive].some(v=>!Number.isFinite(v))) throw new Error(`${target.name} の受信内訳を取得できませんでした。`);
       return {
-        range: `'${sheetName}'!AW${target.row}:${target.hasDetailedReceiveColumns ? 'BB' : target.hasReceiveColumn ? 'AZ' : 'AY'}${target.row}`,
+        range: `'${sheetName}'!${target.resultOffset ? 'AX' : 'AW'}${target.row}:${target.hasDetailedReceiveColumns ? (target.resultOffset ? 'BC' : 'BB') : target.hasReceiveColumn ? (target.resultOffset ? 'BA' : 'AZ') : (target.resultOffset ? 'AZ' : 'AY')}${target.row}`,
         values: [[stats.interaction, stats.individual, stats.broadcast, ...(target.hasReceiveColumn ? [stats.interactionReceive] : []), ...(target.hasDetailedReceiveColumns ? [stats.individualReceive, stats.broadcastReceive] : [])]],
       };
     });
-    writes.push(...abceReceiveWrites(sheetName, date, todayResultTimeRow, abceReceiveTotal));
+    writes.push(...abceReceiveWrites(sheetName, date, todayResultTimeRow, abceReceiveTotal, targets[0]?.resultOffset || 0));
     writes.push({
-      range: `'${sheetName}'!${date.iso >= '2026-11-06' ? 'AV' : 'AW'}${todayResultTimeRow}`,
+      range: `'${sheetName}'!${date.iso >= '2026-11-06' ? 'AV' : (targets[0]?.resultOffset ? 'AX' : 'AW')}${todayResultTimeRow}`,
       values: [[executionTime]],
     });
     await sheets.spreadsheets.values.batchUpdate({
