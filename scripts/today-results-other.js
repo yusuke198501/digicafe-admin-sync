@@ -6,7 +6,7 @@ export function accountStatsForTarget(target, targets, accounts) {
   if (!all) throw new Error('「その他」計算用の全体実績がありません。');
   const people=targets.filter(t=>!t.isOther);
   if (new Set(people.map(t=>t.accountId)).size!==people.length) throw new Error('担当者IDの重複により「その他」を計算できません。');
-  const keys=['interaction','individual','broadcast',...(target.hasReceiveColumn?['interactionReceive']:[])];
+  const keys=['interaction','individual','broadcast',...(target.hasReceiveColumn?['interactionReceive']:[]),...(target.hasDetailedReceiveColumns?['individualReceive','broadcastReceive']:[])];
   const result={};
   for (const key of keys) {
     let remainder=all[key];

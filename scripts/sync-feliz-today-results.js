@@ -121,7 +121,8 @@ export function buildFelizWrites(values, mapping, metrics, sheetName = '目標�
   if (starts.length !== 1) throw new Error('Feliz: 対象日のブロックを一意に特定できません。');
   const start = starts[0], next = values.findIndex((r,i) => i > start && /^\d{1,2}\/\d{1,2}\(/.test(norm(r[0])) && ['dc','feliz'].includes(norm(r[1]).toLowerCase()));
   const end = next < 0 ? values.length : next;
-  const nameColumn = norm(values[start+2]?.[52]) === '実本数' ? 52 : 51;
+  const detectedNameColumn = (values[start+2] ?? []).findIndex((v,i)=>i>=51 && norm(v)==='実本数');
+  const nameColumn = detectedNameColumn >= 0 ? detectedNameColumn : 51;
   if (norm(values[start][48]) !== '本日結果' || ['送信','MSG付いいね','いいね'].some((h,i) => norm(values[start+2]?.[48+i]) !== h)) throw new Error('Feliz: AW～AYの本日結果見出しが一致しません。');
   const names = new Map();
   for (const r of mapping) if (r[0] && r[1]) { const name = norm(r[1]); if (names.has(name)) throw new Error('Feliz: 対応表の名前が重複しています。'); names.set(name, norm(r[0])); }
@@ -147,7 +148,7 @@ export async function main() {
   const target = metadata.sheets.find(s=>s.properties.title==='目標＆振分')?.properties;
   const mapSheet = metadata.sheets.find(s=>s.properties.title==='マケ画面アカウント対応表')?.properties;
   if (!target || !mapSheet || target.gridProperties.columnCount < 52) throw new Error('Feliz: 更新先または対応表がありません。');
-  const sourceRange = `'目標＆振分'!A1:BA${target.gridProperties.rowCount}`;
+  const sourceRange = `'目標＆振分'!A1:BC${target.gridProperties.rowCount}`;
   const source = (await read(sourceRange)).data.values ?? [];
   const mapping = (await read(`'マケ画面アカウント対応表'!E3:F${mapSheet.gridProperties.rowCount}`)).data.values ?? [];
   const writes = buildFelizWrites(source, mapping, metrics);
