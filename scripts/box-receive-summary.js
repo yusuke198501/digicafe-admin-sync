@@ -25,8 +25,8 @@ export function parseAbceReceiveTotal(html, displayDate) {
   }, 0);
 }
 
-export function abceReceiveWrites(sheetName, date, row, total) {
+export function abceReceiveWrites(sheetName, date, row, total, resultOffset = 0) {
   // Use the new summary layout from November 6 onward; preserve older blocks.
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date.iso ?? '') || date.iso < '2026-11-06' || !Number.isSafeInteger(total) || total < 0) return [];
-  return [{ range: `'${sheetName}'!AX${row}`, values: [[total]] }];
+  return [{ range: `'${sheetName}'!${resultOffset ? 'AY' : 'AX'}${row}`, values: [[total]] }];
 }
