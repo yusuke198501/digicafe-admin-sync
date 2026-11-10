@@ -149,7 +149,7 @@ export async function main() {
   const target = metadata.sheets.find(s=>s.properties.title==='目標＆振分')?.properties;
   const mapSheet = metadata.sheets.find(s=>s.properties.title==='マケ画面アカウント対応表')?.properties;
   if (!target || !mapSheet || target.gridProperties.columnCount < 52) throw new Error('Feliz: 更新先または対応表がありません。');
-  const sourceRange = `'目標＆振分'!A1:BD${target.gridProperties.rowCount}`;
+  const sourceRange = `'目標＆振分'!A1:BE${target.gridProperties.rowCount}`;
   const source = (await read(sourceRange)).data.values ?? [];
   const mapping = (await read(`'マケ画面アカウント対応表'!E3:F${mapSheet.gridProperties.rowCount}`)).data.values ?? [];
   const writes = buildFelizWrites(source, mapping, metrics);
