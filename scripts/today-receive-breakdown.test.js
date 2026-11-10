@@ -45,3 +45,20 @@ test('receive-total layout rejects a missing receive detail header before any wr
   await assert.rejects(()=>r.run(new Map([['id',people],['全体',all]]),{iso:'2026-11-08',label:'11/8'},100),/見出し/);
   assert.equal(r.writes(),undefined);
 });
+
+test('send-total layout preserves AX and BB formulas and AS/AW goals while refreshing six metrics',async()=>{
+  const rows=totalFixture();for(const row of rows){while(row.length<49)row.push('');row.splice(49,0,'');}
+  rows[2][49]='送信合計';rows[4][49]='=SUM(AY5:AZ5)';rows[4][53]='=SUM(BC5:BE5)';
+  const before=structuredClone(rows),r=runner(rows);
+  await r.run(new Map([['id',people],['全体',all]]),{iso:'2026-11-08',label:'11/8'},100);
+  assert.deepEqual(r.writes().slice(0,4),[
+    {range:"'目標＆振分'!AY5:BA5",values:[[10,3,4]]},
+    {range:"'目標＆振分'!BC5:BE5",values:[[5,0,7]]},
+    {range:"'目標＆振分'!AY6:BA6",values:[[10,2,6]]},
+    {range:"'目標＆振分'!BC6:BE6",values:[[7,2,8]]},
+  ]);
+  assert.ok(r.writes().some(w=>w.range==="'目標＆振分'!AZ2"));
+  assert.ok(r.writes().some(w=>w.range==="'目標＆振分'!AV2"));
+  assert.ok(!r.writes().some(w=>/!AS|!AW|!AX|!BB|!BF/.test(w.range)));
+  assert.deepEqual(rows,before);
+});

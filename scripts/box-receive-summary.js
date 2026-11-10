@@ -28,5 +28,6 @@ export function parseAbceReceiveTotal(html, displayDate) {
 export function abceReceiveWrites(sheetName, date, row, total, resultOffset = 0) {
   // Use the new summary layout from November 6 onward; preserve older blocks.
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date.iso ?? '') || date.iso < '2026-11-06' || !Number.isSafeInteger(total) || total < 0) return [];
-  return [{ range: `'${sheetName}'!${resultOffset ? 'AY' : 'AX'}${row}`, values: [[total]] }];
+  if (![0,1,2].includes(resultOffset)) throw new Error('ABCE受信合計の列位置が不正です。');
+  return [{ range: `'${sheetName}'!${['AX','AY','AZ'][resultOffset]}${row}`, values: [[total]] }];
 }

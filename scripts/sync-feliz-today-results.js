@@ -124,7 +124,7 @@ export function buildFelizWrites(values, mapping, metrics, sheetName = '目標�
   const detectedNameColumn = (values[start+2] ?? []).findIndex((v,i)=>i>=51 && norm(v)==='実本数');
   const nameColumn = detectedNameColumn >= 0 ? detectedNameColumn : 51;
   const resultColumn = values[start].findIndex((v,i)=>i>=48 && norm(v)==='本日結果');
-  if (![48,49].includes(resultColumn) || ['送信','MSG付いいね','いいね'].some((h,i) => norm(values[start+2]?.[resultColumn+i]) !== h)) throw new Error('Feliz: 本日結果見出しが一致しません。');
+  if (![48,49,50].includes(resultColumn) || ['送信','MSG付いいね','いいね'].some((h,i) => norm(values[start+2]?.[resultColumn+i]) !== h)) throw new Error('Feliz: 本日結果見出しが一致しません。');
   const names = new Map();
   for (const r of mapping) if (r[0] && r[1]) { const name = norm(r[1]); if (names.has(name)) throw new Error('Feliz: 対応表の名前が重複しています。'); names.set(name, norm(r[0])); }
   const writes = [], seen = new Set();
@@ -132,10 +132,10 @@ export function buildFelizWrites(values, mapping, metrics, sheetName = '目標�
     const name = norm(values[i]?.[nameColumn]); if (!name || ['実本数','升シフト','理想升シフト'].includes(name)) continue;
     const id = names.get(name); if (!id || seen.has(id) || !metrics.accounts.has(id)) throw new Error('Feliz: 担当者のIDまたは取得実績が見つかりません。');
     const counts = metrics.accounts.get(id); if (counts.length !== 3 || counts.some(n => !Number.isSafeInteger(n) || n < 0)) throw new Error('Feliz: 書込数値が不正です。');
-    seen.add(id); writes.push({ range: `'${sheetName}'!${resultColumn===49?'AX':'AW'}${i+1}:${resultColumn===49?'AZ':'AY'}${i+1}`, values: [counts] });
+    seen.add(id); writes.push({ range: `'${sheetName}'!${['AW','AX','AY'][resultColumn-48]}${i+1}:${['AY','AZ','BA'][resultColumn-48]}${i+1}`, values: [counts] });
   }
   if (!writes.length) throw new Error('Feliz: 更新対象者がいません。');
-  writes.push({ range: `'${sheetName}'!${resultColumn===49?'AX':'AW'}${start+2}`, values: [[metrics.fetchedTime]] });
+  writes.push({ range: `'${sheetName}'!${['AW','AX','AY'][resultColumn-48]}${start+2}`, values: [[metrics.fetchedTime]] });
   return writes;
 }
 export async function main() {
@@ -149,7 +149,7 @@ export async function main() {
   const target = metadata.sheets.find(s=>s.properties.title==='目標＆振分')?.properties;
   const mapSheet = metadata.sheets.find(s=>s.properties.title==='マケ画面アカウント対応表')?.properties;
   if (!target || !mapSheet || target.gridProperties.columnCount < 52) throw new Error('Feliz: 更新先または対応表がありません。');
-  const sourceRange = `'目標＆振分'!A1:BE${target.gridProperties.rowCount}`;
+  const sourceRange = `'目標＆振分'!A1:BF${target.gridProperties.rowCount}`;
   const source = (await read(sourceRange)).data.values ?? [];
   const mapping = (await read(`'マケ画面アカウント対応表'!E3:F${mapSheet.gridProperties.rowCount}`)).data.values ?? [];
   const writes = buildFelizWrites(source, mapping, metrics);
