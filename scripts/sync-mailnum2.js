@@ -783,16 +783,19 @@ function locateTodayResultTargets(values, date, nameToId, sheetName) {
     if (nameColumn < 41) continue;
     const name = text(values[index][nameColumn]);
     const resultOffset = text(values[titleIndex + 2]?.[48]) === '受信目標' ? 1 : 0;
-    const hasReceiveTotalColumn = text(values[titleIndex + 2]?.[51 + resultOffset]) === '受信合計';
-    const receiveOffset = resultOffset + Number(hasReceiveTotalColumn);
+    const hasSendTotalColumn = text(values[titleIndex + 2]?.[48 + resultOffset]) === '送信合計';
+    const sendOffset = resultOffset + Number(hasSendTotalColumn);
+    const hasReceiveTotalColumn = text(values[titleIndex + 2]?.[51 + sendOffset]) === '受信合計';
+    const receiveOffset = sendOffset + Number(hasReceiveTotalColumn);
     const hasReceiveColumn = text(values[titleIndex + 2]?.[51 + receiveOffset]) === '受信';
     const individualReceiveHeader = text(values[titleIndex + 2]?.[52 + receiveOffset]) === '個別受信';
     const broadcastReceiveHeader = text(values[titleIndex + 2]?.[53 + receiveOffset]) === '同報受信';
     if (individualReceiveHeader !== broadcastReceiveHeader || (individualReceiveHeader && !hasReceiveColumn)) throw new Error('本日結果の受信内訳見出しが不完全です。');
     const hasDetailedReceiveColumns = individualReceiveHeader && broadcastReceiveHeader;
+    if (hasSendTotalColumn && (!hasReceiveTotalColumn || !hasDetailedReceiveColumns || resultOffset !== 1)) throw new Error('送信合計列の配置が不正です。');
     if (hasReceiveTotalColumn && !hasDetailedReceiveColumns) throw new Error('受信合計に必要な受信内訳見出しが不完全です。');
     if (hasReceiveColumn && nameColumn !== (hasDetailedReceiveColumns ? 54 : 52) + receiveOffset) throw new Error('本日結果の受信列と担当者名の位置が一致しません。');
-    targets.push({ row: index + 1, name, accountId: nameToId.get(name), hasReceiveColumn, hasDetailedReceiveColumns, hasReceiveTotalColumn, resultOffset, isOther: name === 'その他' });
+    targets.push({ row: index + 1, name, accountId: nameToId.get(name), hasReceiveColumn, hasDetailedReceiveColumns, hasReceiveTotalColumn, hasSendTotalColumn, resultOffset, isOther: name === 'その他' });
   }
   if (!targets.length) throw new Error(`${date.label} DC block の本日結果に更新対象者が見つかりません。`);
   return targets;
@@ -801,6 +804,13 @@ function locateTodayResultTargets(values, date, nameToId, sheetName) {
 // Keep the formula column between send and receive results out of RAW writes.
 function buildTodayResultWrites(target, stats, sheetName) {
   const send = [stats.interaction, stats.individual, stats.broadcast];
+  if (target.hasSendTotalColumn) {
+    if (!target.resultOffset || !target.hasReceiveTotalColumn || !target.hasDetailedReceiveColumns) throw new Error('送信合計列の配置が不正です。');
+    return [
+      { range: "'" + sheetName + "'!AY" + target.row + ':BA' + target.row, values: [send] },
+      { range: "'" + sheetName + "'!BC" + target.row + ':BE' + target.row, values: [[stats.interactionReceive, stats.individualReceive, stats.broadcastReceive]] },
+    ];
+  }
   if (target.hasReceiveTotalColumn) {
     if (!target.resultOffset || !target.hasDetailedReceiveColumns) throw new Error('受信合計列の配置が不正です。');
     return [
@@ -851,7 +861,7 @@ async function updateSheet(metrics, hour, date, canRunForSlot) {
     }
   }
   for (const sheetName of SHEET_NAMES) {
-    const range = `'${sheetName}'!A:BE`;
+    const range = `'${sheetName}'!A:BF`;
     const source = await sheets.spreadsheets.values.get({ spreadsheetId, range });
     const values = source.data.values ?? [];
     const target = locateTargetRow(values, date, hour, sheetName);
@@ -941,8 +951,8 @@ async function updateSheet(metrics, hour, date, canRunForSlot) {
           })),
           // An explicit report date is a slot backfill, not a refresh of that day's staff results.
           ...(process.env.REPORT_DATE ? [] : [
-            { range: `'${sheetName}'!${date.iso >= '2026-11-06' ? 'AV' : (todayResultTargets[0]?.resultOffset ? 'AX' : 'AW')}${todayResultTimeRow}`, values: [[executionTime]] },
-            ...abceReceiveWrites(sheetName, date, todayResultTimeRow, metrics.abceReceiveTotal, todayResultTargets[0]?.resultOffset || 0),
+            { range: `'${sheetName}'!${date.iso >= '2026-11-06' ? 'AV' : (todayResultTargets[0]?.hasSendTotalColumn ? 'AY' : todayResultTargets[0]?.resultOffset ? 'AX' : 'AW')}${todayResultTimeRow}`, values: [[executionTime]] },
+            ...abceReceiveWrites(sheetName, date, todayResultTimeRow, metrics.abceReceiveTotal, (todayResultTargets[0]?.resultOffset || 0) + Number(Boolean(todayResultTargets[0]?.hasSendTotalColumn))),
             ...todayResultWrites,
             ...weeklyWrites,
           ]),
@@ -966,7 +976,7 @@ async function updateTodayResults(accountSendStats, date, abceReceiveTotal) {
   const results = [];
 
   for (const sheetName of SHEET_NAMES) {
-    const source = await sheets.spreadsheets.values.get({ spreadsheetId, range: `'${sheetName}'!A:BE` });
+    const source = await sheets.spreadsheets.values.get({ spreadsheetId, range: `'${sheetName}'!A:BF` });
     const values = source.data.values ?? [];
     const targets = locateTodayResultTargets(values, date, nameToId, sheetName);
     const todayResultTimeRow = locateTodayResultTimeRow(values, date, sheetName);
@@ -978,9 +988,9 @@ async function updateTodayResults(accountSendStats, date, abceReceiveTotal) {
       if (target.hasDetailedReceiveColumns && [stats.individualReceive, stats.broadcastReceive].some(v=>!Number.isFinite(v))) throw new Error(`${target.name} の受信内訳を取得できませんでした。`);
       return buildTodayResultWrites(target, stats, sheetName);
     });
-    writes.push(...abceReceiveWrites(sheetName, date, todayResultTimeRow, abceReceiveTotal, targets[0]?.resultOffset || 0));
+    writes.push(...abceReceiveWrites(sheetName, date, todayResultTimeRow, abceReceiveTotal, (targets[0]?.resultOffset || 0) + Number(Boolean(targets[0]?.hasSendTotalColumn))));
     writes.push({
-      range: `'${sheetName}'!${date.iso >= '2026-11-06' ? 'AV' : (targets[0]?.resultOffset ? 'AX' : 'AW')}${todayResultTimeRow}`,
+      range: `'${sheetName}'!${date.iso >= '2026-11-06' ? 'AV' : (targets[0]?.hasSendTotalColumn ? 'AY' : targets[0]?.resultOffset ? 'AX' : 'AW')}${todayResultTimeRow}`,
       values: [[executionTime]],
     });
     await sheets.spreadsheets.values.batchUpdate({
