@@ -5,7 +5,7 @@ import vm from 'node:vm';
 import { abceReceiveWrites } from './box-receive-summary.js';
 import { accountStatsForTarget } from './today-results-other.js';
 
-async function collectWrites(backfill,receive=false,detailed=false) {
+async function collectWrites(backfill,receive=false,detailed=false,total=false) {
   const source=readFileSync(new URL('./sync-mailnum2.js',import.meta.url),'utf8');
   const code=source.slice(source.indexOf('async function updateSheet('),source.indexOf('async function updateTodayResults('));
   let written;
@@ -17,9 +17,10 @@ async function collectWrites(backfill,receive=false,detailed=false) {
     locateBoxTargetRow:()=>({row:3902,columns:Object.fromEntries(boxes.map((b,i)=>[b,{receiveIndex:2+4*i,dauIndex:4+4*i}]))}),
     locateIndividualTargetRow:()=>({row:3902,columns:{send:33,receive:35}}),locateSendTable:()=>({columns:{A:11,B:12,C:13,E:14,'全体':19}}),
     // A staff row deliberately overlaps the slot row. It must still be excluded during a backfill.
-    locateTodayResultTargets:()=>[{row:3892,accountId:'id',name:'担当者',hasReceiveColumn:receive,hasDetailedReceiveColumns:detailed}],locateTodayResultTimeRow:()=>3882,abceReceiveWrites,accountStatsForTarget,
+    locateTodayResultTargets:()=>[{row:3892,accountId:'id',name:'担当者',hasReceiveColumn:receive,hasDetailedReceiveColumns:detailed,hasReceiveTotalColumn:total,resultOffset:total?1:0}],locateTodayResultTimeRow:()=>3882,abceReceiveWrites,accountStatsForTarget,
     columnLetter:(n)=>{let s='';for(n++;n;n=Math.floor((n-1)/26))s=String.fromCharCode(65+(n-1)%26)+s;return s;}};
-  const run=vm.runInNewContext(code+'\nupdateSheet',context);
+  const helper=source.slice(source.indexOf('function buildTodayResultWrites('),source.indexOf('function locateTodayResultTimeRow('));
+  const run=vm.runInNewContext(helper+'\n'+code+'\nupdateSheet',context);
   await run(metrics,24,{iso:'2026-11-06',label:'11/6'},()=>true);
   return JSON.parse(JSON.stringify(written));
 }
@@ -51,4 +52,11 @@ test('hourly sync writes all six results after the detailed receive columns are 
   const writes=await collectWrites(false,true,true);
   assert.deepEqual(writes.find(w=>w.range==="'目標＆振分'!AW3892:BB3892")?.values,[[10,2,3,7,4,6]]);
   assert.ok(!writes.some(w=>w.range.includes('BC3892')));
+});
+
+test('hourly sync preserves BA receive-total formulas and writes receive details in BB:BD',async()=>{
+  const writes=await collectWrites(false,true,true,true);
+  assert.deepEqual(writes.find(w=>w.range==="'目標＆振分'!AX3892:AZ3892")?.values,[[10,2,3]]);
+  assert.deepEqual(writes.find(w=>w.range==="'目標＆振分'!BB3892:BD3892")?.values,[[7,4,6]]);
+  assert.ok(!writes.some(w=>w.range.includes('BA3892')));
 });

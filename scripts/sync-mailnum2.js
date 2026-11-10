@@ -783,16 +783,35 @@ function locateTodayResultTargets(values, date, nameToId, sheetName) {
     if (nameColumn < 41) continue;
     const name = text(values[index][nameColumn]);
     const resultOffset = text(values[titleIndex + 2]?.[48]) === '受信目標' ? 1 : 0;
-    const hasReceiveColumn = text(values[titleIndex + 2]?.[51 + resultOffset]) === '受信';
-    const individualReceiveHeader = text(values[titleIndex + 2]?.[52 + resultOffset]) === '個別受信';
-    const broadcastReceiveHeader = text(values[titleIndex + 2]?.[53 + resultOffset]) === '同報受信';
+    const hasReceiveTotalColumn = text(values[titleIndex + 2]?.[51 + resultOffset]) === '受信合計';
+    const receiveOffset = resultOffset + Number(hasReceiveTotalColumn);
+    const hasReceiveColumn = text(values[titleIndex + 2]?.[51 + receiveOffset]) === '受信';
+    const individualReceiveHeader = text(values[titleIndex + 2]?.[52 + receiveOffset]) === '個別受信';
+    const broadcastReceiveHeader = text(values[titleIndex + 2]?.[53 + receiveOffset]) === '同報受信';
     if (individualReceiveHeader !== broadcastReceiveHeader || (individualReceiveHeader && !hasReceiveColumn)) throw new Error('本日結果の受信内訳見出しが不完全です。');
     const hasDetailedReceiveColumns = individualReceiveHeader && broadcastReceiveHeader;
-    if (hasReceiveColumn && nameColumn !== (hasDetailedReceiveColumns ? 54 : 52) + resultOffset) throw new Error('本日結果の受信列と担当者名の位置が一致しません。');
-    targets.push({ row: index + 1, name, accountId: nameToId.get(name), hasReceiveColumn, hasDetailedReceiveColumns, resultOffset, isOther: name === 'その他' });
+    if (hasReceiveTotalColumn && !hasDetailedReceiveColumns) throw new Error('受信合計に必要な受信内訳見出しが不完全です。');
+    if (hasReceiveColumn && nameColumn !== (hasDetailedReceiveColumns ? 54 : 52) + receiveOffset) throw new Error('本日結果の受信列と担当者名の位置が一致しません。');
+    targets.push({ row: index + 1, name, accountId: nameToId.get(name), hasReceiveColumn, hasDetailedReceiveColumns, hasReceiveTotalColumn, resultOffset, isOther: name === 'その他' });
   }
   if (!targets.length) throw new Error(`${date.label} DC block の本日結果に更新対象者が見つかりません。`);
   return targets;
+}
+
+// Keep the formula column between send and receive results out of RAW writes.
+function buildTodayResultWrites(target, stats, sheetName) {
+  const send = [stats.interaction, stats.individual, stats.broadcast];
+  if (target.hasReceiveTotalColumn) {
+    if (!target.resultOffset || !target.hasDetailedReceiveColumns) throw new Error('受信合計列の配置が不正です。');
+    return [
+      { range: "'" + sheetName + "'!AX" + target.row + ':AZ' + target.row, values: [send] },
+      { range: "'" + sheetName + "'!BB" + target.row + ':BD' + target.row, values: [[stats.interactionReceive, stats.individualReceive, stats.broadcastReceive]] },
+    ];
+  }
+  return [{
+    range: "'" + sheetName + "'!" + (target.resultOffset ? 'AX' : 'AW') + target.row + ':' + (target.hasDetailedReceiveColumns ? (target.resultOffset ? 'BC' : 'BB') : target.hasReceiveColumn ? (target.resultOffset ? 'BA' : 'AZ') : (target.resultOffset ? 'AZ' : 'AY')) + target.row,
+    values: [[...send, ...(target.hasReceiveColumn ? [stats.interactionReceive] : []), ...(target.hasDetailedReceiveColumns ? [stats.individualReceive, stats.broadcastReceive] : [])]],
+  }];
 }
 
 function locateTodayResultTimeRow(values, date, sheetName) {
@@ -832,7 +851,7 @@ async function updateSheet(metrics, hour, date, canRunForSlot) {
     }
   }
   for (const sheetName of SHEET_NAMES) {
-    const range = `'${sheetName}'!A:BD`;
+    const range = `'${sheetName}'!A:BE`;
     const source = await sheets.spreadsheets.values.get({ spreadsheetId, range });
     const values = source.data.values ?? [];
     const target = locateTargetRow(values, date, hour, sheetName);
@@ -851,10 +870,7 @@ async function updateSheet(metrics, hour, date, canRunForSlot) {
       if (!stats) { console.warn('WARNING: 取得できない個人別本日結果は既存値を保持します。'); return []; }
       if (target.hasReceiveColumn && !Number.isFinite(stats.interactionReceive)) throw new Error(`${target.name} のやりとり受信を取得できませんでした。`);
       if (target.hasDetailedReceiveColumns && [stats.individualReceive, stats.broadcastReceive].some(v=>!Number.isFinite(v))) throw new Error(`${target.name} の受信内訳を取得できませんでした。`);
-      return [{
-        range: `'${sheetName}'!${target.resultOffset ? 'AX' : 'AW'}${target.row}:${target.hasDetailedReceiveColumns ? (target.resultOffset ? 'BC' : 'BB') : target.hasReceiveColumn ? (target.resultOffset ? 'BA' : 'AZ') : (target.resultOffset ? 'AZ' : 'AY')}${target.row}`,
-        values: [[stats.interaction, stats.individual, stats.broadcast, ...(target.hasReceiveColumn ? [stats.interactionReceive] : []), ...(target.hasDetailedReceiveColumns ? [stats.individualReceive, stats.broadcastReceive] : [])]],
-      }];
+      return buildTodayResultWrites(target, stats, sheetName);
     });
     let weeklyWrites = [];
     if (hour === 9 && weeklySourceRowsByMonth) {
@@ -950,20 +966,17 @@ async function updateTodayResults(accountSendStats, date, abceReceiveTotal) {
   const results = [];
 
   for (const sheetName of SHEET_NAMES) {
-    const source = await sheets.spreadsheets.values.get({ spreadsheetId, range: `'${sheetName}'!A:BD` });
+    const source = await sheets.spreadsheets.values.get({ spreadsheetId, range: `'${sheetName}'!A:BE` });
     const values = source.data.values ?? [];
     const targets = locateTodayResultTargets(values, date, nameToId, sheetName);
     const todayResultTimeRow = locateTodayResultTimeRow(values, date, sheetName);
-    const writes = targets.map((target) => {
+    const writes = targets.flatMap((target) => {
       const stats = accountStatsForTarget(target, targets, accountSendStats);
       if (!stats) throw new Error(`${target.name} (${target.accountId}) の本日送信実績が管理画面にありません。`);
       if (target.isOther) console.log(`${date.label} その他 -> ${JSON.stringify(stats)}; 全体=${JSON.stringify(accountSendStats.get('全体'))}`);
       if (target.hasReceiveColumn && !Number.isFinite(stats.interactionReceive)) throw new Error(`${target.name} のやりとり受信を取得できませんでした。`);
       if (target.hasDetailedReceiveColumns && [stats.individualReceive, stats.broadcastReceive].some(v=>!Number.isFinite(v))) throw new Error(`${target.name} の受信内訳を取得できませんでした。`);
-      return {
-        range: `'${sheetName}'!${target.resultOffset ? 'AX' : 'AW'}${target.row}:${target.hasDetailedReceiveColumns ? (target.resultOffset ? 'BC' : 'BB') : target.hasReceiveColumn ? (target.resultOffset ? 'BA' : 'AZ') : (target.resultOffset ? 'AZ' : 'AY')}${target.row}`,
-        values: [[stats.interaction, stats.individual, stats.broadcast, ...(target.hasReceiveColumn ? [stats.interactionReceive] : []), ...(target.hasDetailedReceiveColumns ? [stats.individualReceive, stats.broadcastReceive] : [])]],
-      };
+      return buildTodayResultWrites(target, stats, sheetName);
     });
     writes.push(...abceReceiveWrites(sheetName, date, todayResultTimeRow, abceReceiveTotal, targets[0]?.resultOffset || 0));
     writes.push({
