@@ -24,7 +24,7 @@ on:
         default: false
 permissions:
   contents: read
-  actions: read
+  actions: write
 concurrency:
   group: sheet8-snapshot
   cancel-in-progress: false
@@ -40,19 +40,32 @@ jobs:
       - run: npm install --ignore-scripts --no-audit --no-fund
       - run: node --test scripts/final-snapshot.test.mjs scripts/ga4-snapshots.test.mjs scripts/cohort-login-charts.test.mjs scripts/cohort-logins.test.js scripts/sync-sheet8.test.js scripts/payment-points.test.js scripts/voluntary-leaves.test.js scripts/ga4-realtime.test.mjs scripts/ga4-chart.test.mjs scripts/all-received-chart.test.mjs scripts/expanded-chart.test.mjs scripts/expanded-chart.test.mjs
       - run: node scripts/sync-sheet8.js
+        id: snapshot
+        if: ${{ !inputs.payment_probe }}
         env:
           FINAL_PREVIOUS_DAY: ${{ inputs.final_previous_day }}
           COHORT_GRAPH_SETUP_ONLY: ${{ inputs.cohort_graph_setup }}
           GA4_PROBE_ONLY: ${{ inputs.ga4_probe }}
           GA4_AUTH_MODE: 'service_account'
           GA4_OAUTH_JSON: ${{ secrets.GA4_OAUTH_JSON }}
-          PAYMENT_PROBE_ONLY: ${{ inputs.payment_probe }}
+          PAYMENT_POINTS_EXTERNAL: 'true'
           LEAVE_PROBE_ONLY: ${{ inputs.leave_probe }}
           GITHUB_TOKEN: ${{ github.token }}
           CATS_API_TOKEN: ${{ secrets.CATS_API_TOKEN }}
           LOG_ACCOUNT: ${{ secrets.LOG_ACCOUNT }}
           LOG_PASSWORD: ${{ secrets.LOG_PASSWORD }}
-          ADMIN_DIGICAFE_USERNAME: ${{ secrets.ADMIN_DIGICAFE_USERNAME }}
-          ADMIN_DIGICAFE_PASSWORD: ${{ secrets.ADMIN_DIGICAFE_PASSWORD }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           SPREADSHEET_ID: '1gsDZpoK1WZ4iZN4F8AqCdRw2EJotpixposi8KgIy4gU'
+      - name: Dispatch payment-only update to UF-0049
+        if: ${{ steps.snapshot.outputs.snapshot_timestamp != '' || inputs.payment_probe }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PAYMENT_TIMESTAMP: ${{ steps.snapshot.outputs.snapshot_timestamp }}
+          PAYMENT_PROBE: ${{ inputs.payment_probe || false }}
+          PAYMENT_RUNNER_ENABLED: ${{ vars.PAYMENT_RUNNER_ENABLED }}
+        run: |
+          if [ "$PAYMENT_RUNNER_ENABLED" != "true" ]; then
+            echo "UF-0049 setup pending; payment points retain the same-day previous value."
+            exit 0
+          fi
+          gh workflow run payment-points-sync.yml --repo "$GITHUB_REPOSITORY" --ref main --field timestamp="$PAYMENT_TIMESTAMP" --field probe="$PAYMENT_PROBE"

@@ -1,3 +1,4 @@
+import { appendFileSync } from 'node:fs';
 import { refreshGa4Chart } from './ga4-chart.mjs';
 import { fullCollectionDue, recordGa4Snapshot } from './ga4-snapshots.mjs';
 import { finalSnapshotTimestamp, isFinalSnapshotRun, saveFinalSnapshot } from './final-snapshot.mjs';
@@ -359,7 +360,7 @@ async function main() {
     break;
   }
   const ga4Promise = finalSnapshot ? Promise.resolve('') : ga4OrBlank();
-  const paymentPromise = metricOrZero('W 入金ポイント',1,async()=>[await fetchPaymentPoints(timestamp,process.env.ADMIN_DIGICAFE_USERNAME,process.env.ADMIN_DIGICAFE_PASSWORD)]);
+  const paymentPromise = process.env.PAYMENT_POINTS_EXTERNAL === 'true' ? Promise.resolve([0]) : metricOrZero('W 入金ポイント',1,async()=>[await fetchPaymentPoints(timestamp,process.env.ADMIN_DIGICAFE_USERNAME,process.env.ADMIN_DIGICAFE_PASSWORD)]);
   const leavePromise = metricOrZero('X 男性自主退会数（毎時）',1,async()=>[await (finalSnapshot ? fetchVoluntaryLeaves(timestamp) : hourlyVoluntaryLeaves(sheets,spreadsheetId,timestamp))]);
   const client = wrapper(axios.create({jar:new CookieJar(),timeout:45000,headers:{'User-Agent':'Mozilla/5.0','Accept-Language':'ja-JP,ja;q=0.9'}}));
   // Do not log axios errors/configs: they can contain login credentials.
@@ -462,6 +463,7 @@ async function main() {
   while (verified.length < row.length && row.slice(verified.length).every(v => v === '')) verified.push('');
   if (JSON.stringify(verified) !== JSON.stringify(row)) throw new Error('追記後の照合に失敗しました。');
   console.log(JSON.stringify({range,row}));
+  if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `snapshot_timestamp=${timestamp}\n`);
   if (Number.isSafeInteger(ga4ActiveUsers)) await recordGa4Snapshot(sheets,spreadsheetId,timestamp,ga4ActiveUsers);
   if (!finalSnapshot) await refreshGraphSnapshotTime(sheets,spreadsheetId,timestamp);
   try { await refreshCohortLoginCharts(sheets,spreadsheetId); } catch { console.warn('WARNING: 登録月別ログイン数のグラフ設定を次回に持ち越します。記録は完了しています。'); }
