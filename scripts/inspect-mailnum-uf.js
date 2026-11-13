@@ -2,6 +2,7 @@ import axios from 'axios';
 import { wrapper } from 'axios-cookiejar-support';
 import * as cheerio from 'cheerio';
 import { CookieJar } from 'tough-cookie';
+import { pathToFileURL } from 'node:url';
 
 const LOGIN_URL = 'https://log.digicafe.jp/partner/';
 const REPORT_URL = 'https://log.digicafe.jp/partner/mailnum_uf';
@@ -35,13 +36,19 @@ function rows($, table) {
     .filter(Boolean));
 }
 
-function tableFor($, label) {
+export function tableFor($, label) {
+  const compact = value => String(value).replace(/\s/g, '');
+  const embeddedTitle = $('table').toArray().find(table => compact($(table).find('tr').first().text()) === compact(label));
+  if (embeddedTitle) return $(embeddedTitle);
   const heading = $('h1,h2,h3,h4,h5,h6').toArray()
     .find((element) => $(element).text().replace(/\s+/g, ' ').includes(label));
   if (!heading) throw new Error(`表題「${label}」が見つかりません。`);
-  const table = $(heading).nextAll('table').first();
-  if (!table.length) throw new Error(`表題「${label}」の表が見つかりません。`);
-  return table;
+  for (const element of $(heading).nextAll().toArray()) {
+    if (/^h[1-6]$/i.test(element.tagName)) break;
+    const table = $(element).is('table') ? $(element) : $(element).find('table').first();
+    if (table.length) return table;
+  }
+  throw new Error(`表題「${label}」の表が見つかりません。`);
 }
 
 async function main() {
@@ -50,7 +57,7 @@ async function main() {
   const query = new URLSearchParams({
     sex: '1', sort: 'times', mail_start: day, mail_end: day,
     code: '', frm: '', created_at_start: day, created_at_end: day,
-    disp_type: '', folder_rcv_source: 'point', sum: '集計',
+    disp_type: '', folder_rcv_source: 'point', account_scope: 'all', sum: '集計',
   });
   const response = await client.get(`${REPORT_URL}?${query}`);
   const $ = cheerio.load(response.data);
@@ -60,7 +67,7 @@ async function main() {
   }
 }
 
-main().catch((error) => {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main().catch((error) => {
   console.error(error.message);
   process.exit(1);
 });
