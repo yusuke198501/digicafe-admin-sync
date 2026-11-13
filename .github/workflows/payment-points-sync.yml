@@ -1,0 +1,43 @@
+name: 入金ポイント更新（UF-0049）
+on:
+  workflow_dispatch:
+    inputs:
+      timestamp:
+        description: 'Exact sheet8 snapshot timestamp (JST); omit for latest today'
+        required: false
+        type: string
+      probe:
+        description: 'Read-only login/payment test; no spreadsheet writes'
+        default: false
+        type: boolean
+permissions:
+  contents: read
+concurrency:
+  group: payment-points-uf0049
+  cancel-in-progress: false
+jobs:
+  payment:
+    runs-on: [self-hosted, Windows, X64, UF-0049]
+    timeout-minutes: 10
+    steps:
+      - name: Verify dedicated PC
+        shell: powershell
+        run: |
+          if ($env:COMPUTERNAME -ne 'UF-0049') { throw 'This job must run on UF-0049.' }
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+        shell: powershell
+      - run: node scripts/sync-payment-points.js
+        shell: powershell
+        env:
+          PAYMENT_TIMESTAMP: ${{ inputs.timestamp }}
+          PAYMENT_PROBE_ONLY: ${{ inputs.probe }}
+          ADMIN_DIGICAFE_USERNAME: ${{ secrets.ADMIN_DIGICAFE_USERNAME }}
+          ADMIN_DIGICAFE_PASSWORD: ${{ secrets.ADMIN_DIGICAFE_PASSWORD }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          SPREADSHEET_ID: '1gsDZpoK1WZ4iZN4F8AqCdRw2EJotpixposi8KgIy4gU'
