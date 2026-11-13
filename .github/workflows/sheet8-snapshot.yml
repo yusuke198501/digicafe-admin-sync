@@ -30,10 +30,18 @@ concurrency:
   cancel-in-progress: false
 jobs:
   snapshot:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Windows, X64, UF-0049]
+    defaults:
+      run:
+        shell: powershell
     timeout-minutes: 4
     steps:
+      - name: Verify dedicated PC
+        run: |
+          if ($env:COMPUTERNAME -ne 'UF-0049') { throw 'This job must run on UF-0049.' }
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v5
         with:
           node-version: 22
@@ -64,8 +72,11 @@ jobs:
           PAYMENT_PROBE: ${{ inputs.payment_probe || false }}
           PAYMENT_RUNNER_ENABLED: ${{ vars.PAYMENT_RUNNER_ENABLED }}
         run: |
-          if [ "$PAYMENT_RUNNER_ENABLED" != "true" ]; then
-            echo "UF-0049 setup pending; payment points retain the same-day previous value."
+          if ($env:PAYMENT_RUNNER_ENABLED -ne 'true') {
+            Write-Output 'UF-0049 setup pending; payment points retain the same-day previous value.'
             exit 0
-          fi
-          gh workflow run payment-points-sync.yml --repo "$GITHUB_REPOSITORY" --ref main --field timestamp="$PAYMENT_TIMESTAMP" --field probe="$PAYMENT_PROBE"
+          }
+          if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
+            $env:Path = (Join-Path $env:ProgramFiles 'GitHub CLI') + ';' + $env:Path
+          }
+          gh workflow run payment-points-sync.yml --repo $env:GITHUB_REPOSITORY --ref main --field "timestamp=$env:PAYMENT_TIMESTAMP" --field "probe=$env:PAYMENT_PROBE"

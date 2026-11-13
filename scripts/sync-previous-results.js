@@ -1,3 +1,4 @@
+import { previousDateColumn, previousSourceRange } from './previous-date-layout.js';
 import { google } from 'googleapis';
 
 const SPREADSHEET_ID = process.env.PREVIOUS_RESULTS_SPREADSHEET_ID
@@ -48,15 +49,17 @@ async function sheetsClient() {
 async function findTargets(sheets, reportDay) {
   const metadata = await sheets.spreadsheets.get({
     spreadsheetId: SPREADSHEET_ID,
-    fields: 'sheets.properties(title)',
+    fields: 'sheets.properties(title,gridProperties(rowCount,columnCount))',
   });
   const normalizeSheetName = (value) => String(value ?? '').replace(/[\s_]/g, '');
   const sheetTitles = (metadata.data.sheets ?? []).map((sheet) => sheet.properties?.title).filter(Boolean);
   const idMapSheet = sheetTitles.find((title) => ID_MAP_SHEET_CANDIDATES
     .some((candidate) => normalizeSheetName(candidate) === normalizeSheetName(title)));
   if (!idMapSheet) throw new Error(`名前・ID対応表が見つかりません。確認済みタブ: ${sheetTitles.join(', ')}`);
+  const targetGrid = metadata.data.sheets.find(s => s.properties?.title === SHEET_NAME)?.properties?.gridProperties;
+  const sourceRange = previousSourceRange(targetGrid);
   const [sheetResponse, idResponse] = await Promise.all([
-    sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: `'${SHEET_NAME}'!A1:BZ6000` }),
+    sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: `'${SHEET_NAME}'!${sourceRange}` }),
     sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: `'${idMapSheet}'!A:B` }),
   ]);
   const rows = sheetResponse.data.values ?? [];
@@ -69,6 +72,7 @@ async function findTargets(sheets, reportDay) {
   })).filter((item) => item.date);
   const start = headers.find((item) => sameDate(item.date, reportDay))?.index;
   if (start === undefined) throw new Error(`${shortDate(reportDay)} のDCブロックが見つかりません。`);
+  const dateColumn = previousDateColumn(rows[start]);
   const end = headers.find((item) => item.index > start)?.index ?? rows.length;
   const targets = [];
 
@@ -88,7 +92,7 @@ async function findTargets(sheets, reportDay) {
           }
         }
       }
-      if (prior) targets.push({ row: rowIndex + 1, name, prior });
+      if (prior) targets.push({ row: rowIndex + 1, name, prior, dateColumn });
     }
   }
   if (!targets.length) throw new Error('更新対象者が見つかりません。');
@@ -101,14 +105,14 @@ async function main() {
   const sheets = await sheetsClient();
   const targets = await findTargets(sheets, reportDay);
   const data = targets.map((target) => ({
-    range: `'${SHEET_NAME}'!CW${target.row}`,
+    range: `'${SHEET_NAME}'!${target.dateColumn}${target.row}`,
     values: [[shortDate(target.prior)]],
   }));
   await sheets.spreadsheets.values.batchUpdate({
     spreadsheetId: SPREADSHEET_ID,
     requestBody: { valueInputOption: 'RAW', data },
   });
-  console.log(`${shortDate(reportDay)} の前回出勤日をCW列に ${targets.length} 人分更新しました。T/U列の実績は更新していません。`);
+  console.log(`${shortDate(reportDay)} の前回出勤日を${targets[0].dateColumn}列に ${targets.length} 人分更新しました。T/U列の実績は更新していません。`);
 }
 
 main().catch((error) => {
