@@ -19,10 +19,18 @@ concurrency:
   cancel-in-progress: false
 jobs:
   migrate:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Windows, X64, UF-0049]
+    defaults:
+      run:
+        shell: powershell
     timeout-minutes: 30
     steps:
+      - name: Verify dedicated PC
+        run: |
+          if ($env:COMPUTERNAME -ne 'UF-0049') { throw 'This job must run on UF-0049.' }
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v5
         with:
           node-version: 22
@@ -33,13 +41,16 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          node --input-type=module <<'NODE'
+          $source = @'
           const response=await fetch('https://api.github.com/repos/yusuke198501/digicafe-admin-sync/actions/workflows/sheet8-snapshot.yml',{headers:{Authorization:'Bearer '+process.env.GITHUB_TOKEN,Accept:'application/vnd.github+json'}});
           if(!response.ok)throw Error('Cannot verify source updater state');
           const workflow=await response.json();
           if(workflow.state!=='disabled_manually')throw Error('Disable sheet8-snapshot and finish its active run first');
           console.log('Source updater is disabled');
-          NODE
+          '@
+          $scriptPath = Join-Path $env:GITHUB_WORKSPACE '.dc-workflow-check.mjs'
+          [System.IO.File]::WriteAllText($scriptPath, $source, (New-Object System.Text.UTF8Encoding($false)))
+          node $scriptPath
       - run: node scripts/migrate-analysis-workbook.mjs
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}

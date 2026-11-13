@@ -18,16 +18,24 @@ concurrency:
 
 jobs:
   sync:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Windows, X64, UF-0049]
+    defaults:
+      run:
+        shell: powershell
     timeout-minutes: 10
     steps:
+      - name: Verify dedicated PC
+        run: |
+          if ($env:COMPUTERNAME -ne 'UF-0049') { throw 'This job must run on UF-0049.' }
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@v5
         with:
           node-version: 22
 
-      - run: npm install
+      - run: npm install --ignore-scripts --no-audit --no-fund
 
       - run: node scripts/sync-previous-results.js
         env:
