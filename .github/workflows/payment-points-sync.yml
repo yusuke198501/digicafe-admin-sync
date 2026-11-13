@@ -30,7 +30,7 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm install --ignore-scripts --no-audit --no-fund
         shell: powershell
       - run: node scripts/sync-payment-points.js
         shell: powershell
