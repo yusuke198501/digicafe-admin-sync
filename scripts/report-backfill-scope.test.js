@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { abceReceiveWrites } from './box-receive-summary.js';
 import { accountStatsForTarget } from './today-results-other.js';
+import { shouldRefreshWeeklySummary } from './weekly-summary.js';
 
 async function collectWrites(backfill,receive=false,detailed=false,total=false,sendTotal=false) {
   const source=readFileSync(new URL('./sync-mailnum2.js',import.meta.url),'utf8');
@@ -13,6 +14,7 @@ async function collectWrites(backfill,receive=false,detailed=false,total=false,s
   const boxes=['A','B','C','E','I','J','M','Q'];
   const metrics=new Proxy({accountSendStats:new Map([['id',{interaction:10,individual:2,broadcast:3,interactionReceive:7,individualReceive:4,broadcastReceive:6}]]),registrationMetrics:{registrations:5,ageVerifications:2},abceReceiveTotal:100},{get:(target,key)=>key in target?target[key]:1});
   const context={google:{auth:{GoogleAuth:function(){}},sheets:()=>sheets},required:key=>key==='GOOGLE_SERVICE_ACCOUNT_JSON'?'{}':'sheet',loadNameToId:async()=>new Map(),currentTimeJst:()=> '08:50',SHEET_NAMES:['目標＆振分'],process:{env:{REPORT_DATE:backfill?'2026-11-06':''}},console,
+    shouldRefreshWeeklySummary,
     locateTargetRow:()=>({row:3892,metricColumns:{grossReceiveIndex:2,ufReceiveIndex:4,grossDauIndex:8},registrationColumns:{registrations:23,ageVerifications:25,newMaleReceive:27,newMaleDau:29}}),
     locateBoxTargetRow:()=>({row:3902,columns:Object.fromEntries(boxes.map((b,i)=>[b,{receiveIndex:2+4*i,dauIndex:4+4*i}]))}),
     locateIndividualTargetRow:()=>({row:3902,columns:{send:33,receive:35}}),locateSendTable:()=>({columns:{A:11,B:12,C:13,E:14,'全体':19}}),

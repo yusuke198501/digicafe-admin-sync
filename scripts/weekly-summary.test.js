@@ -1,6 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildWeeklySummaryWrites, loadWeeklySummarySources } from './weekly-summary.js';
+import { buildWeeklySummaryWrites, loadWeeklySummarySources, shouldRefreshWeeklySummary } from './weekly-summary.js';
+
+test('retries a missing morning summary at later daytime slots, excluding historical backfills and overnight slots', () => {
+  for (const hour of [9, 10, 13, 17, 21]) assert.equal(shouldRefreshWeeklySummary(hour, ''), true);
+  for (const hour of [0, 3, 24, 27]) assert.equal(shouldRefreshWeeklySummary(hour, ''), false);
+  assert.equal(shouldRefreshWeeklySummary(13, '2026-11-15'), false);
+});
 
 function makeSheet(legacy = false, preserveFormula = true) {
   const values = Array.from({ length: 40 }, () => Array(52).fill(''));
