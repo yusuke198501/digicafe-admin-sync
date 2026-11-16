@@ -10,7 +10,7 @@ import { inferReportHourFromTrigger, isReportSlotStale, parseExplicitReportDate,
 import { parseGrossSales, parsePaidMaleAllUsagePt } from './gross-sales-report.js';
 import { boxColumnsFromTableHeaders, parseDailyBoxDau, sendColumnsFromHeader, summaryMetricColumnsFromHeader } from './box-dau-layout.js';
 import { cumulativeLoginAccountMetrics } from './login-account-hourly.js';
-import { buildWeeklySummaryWrites, loadWeeklySummarySources } from './weekly-summary.js';
+import { buildWeeklySummaryWrites, loadWeeklySummarySources, shouldRefreshWeeklySummary } from './weekly-summary.js';
 import { parseKaidanMetrics } from './kaidan-report.js';
 import { networkRetry } from './network-retry.js';
 import { numberOrZero, valueOrDefault, requestOrNull } from './zero-on-missing.js';
@@ -849,7 +849,8 @@ async function updateSheet(metrics, hour, date, canRunForSlot) {
   const executionTime = currentTimeJst();
   const results = [];
   let weeklySourceRowsByMonth = null;
-  if (hour === 9) {
+  const refreshWeeklySummary = shouldRefreshWeeklySummary(hour, process.env.REPORT_DATE);
+  if (refreshWeeklySummary) {
     try {
       weeklySourceRowsByMonth = await loadWeeklySummarySources({
         sheets,
@@ -883,7 +884,7 @@ async function updateSheet(metrics, hour, date, canRunForSlot) {
       return buildTodayResultWrites(target, stats, sheetName);
     });
     let weeklyWrites = [];
-    if (hour === 9 && weeklySourceRowsByMonth) {
+    if (refreshWeeklySummary && weeklySourceRowsByMonth) {
       const weekly = buildWeeklySummaryWrites({
         sourceRowsByMonth: weeklySourceRowsByMonth,
         targetValues: values,

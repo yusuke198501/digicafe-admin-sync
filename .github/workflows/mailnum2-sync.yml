@@ -26,6 +26,11 @@ on:
         required: false
         type: boolean
         default: false
+      weekly_summary_only:
+        description: Update only the seven-day summary; preserve hourly and personal results
+        required: false
+        type: boolean
+        default: false
 permissions:
   contents: read
   actions: read
@@ -57,8 +62,14 @@ jobs:
 
       - run: node --test scripts/network-retry.test.js scripts/report-slot-guard.test.js scripts/zero-on-missing.test.js
 
-      - run: npm run sync-mailnum2
+      - run: |
+          if ($env:WEEKLY_SUMMARY_ONLY -eq 'true') {
+            node scripts/sync-weekly-summary.js
+          } else {
+            npm run sync-mailnum2
+          }
         env:
+          WEEKLY_SUMMARY_ONLY: ${{ inputs.weekly_summary_only || github.event.inputs.weekly_summary_only }}
           GITHUB_EVENT_NAME: ${{ github.event_name }}
           GITHUB_EVENT_SCHEDULE: ${{ github.event.schedule }}
           REPORT_HOUR: ${{ inputs.report_hour || github.event.inputs.report_hour }}

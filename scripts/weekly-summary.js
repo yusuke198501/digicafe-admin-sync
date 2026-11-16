@@ -1,6 +1,12 @@
 const DAY_COLUMNS_START = 22; // W
 const ROLLING_DAY_LABELS = ['７日前', '６日前', '５日前', '４日前', '３日前', '２日前', '昨日'];
 
+// Retry completed-day summaries in later daytime slots when the source was
+// still incomplete at 9:05. Historical hourly backfills must not refresh them.
+export function shouldRefreshWeeklySummary(hour, reportDateOverride) {
+  return !reportDateOverride && Number.isInteger(hour) && hour >= 9 && hour <= 23;
+}
+
 function cellText(value) {
   return String(value ?? '').replace(/\s/g, '').trim();
 }
