@@ -45,3 +45,10 @@ test('empty ad metric does not shift following numbers and aborts before writes'
   assert.equal(parsed.get('none|アクセス'),'');
   assert.throws(()=>adPlan('当月data',[['','項目'],['広告コード','アクセス'],['none','男性登録数'],['広告コード','アクセス'],['new','男性登録数']],adHtml(''),d,d));
 });
+test('existing duplicate ad-code blocks receive matching values without confusing unique coverage',()=>{
+  const d=new Date('2026-11-01T00:00Z');
+  const rows=[['','項目'],['広告コード','アクセス'],['none','男性登録数'],['広告コード','アクセス'],['none','男性登録数'],['広告コード','アクセス'],['new','男性登録数']];
+  const plan=adPlan('2ヶ月目data',rows,adHtml(),d,d);
+  assert.equal(plan.matched,6);
+  assert.deepEqual(plan.missing,[]);
+});

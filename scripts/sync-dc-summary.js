@@ -95,6 +95,7 @@ export function adPlan(title, rows, html, start, target, existingColumns = 0) {
   const dateHeaders = Array.from({ length: daily.length }, (_, i) => iso(new Date(start.getTime() + i * DAY)).replace(/-0?/g, '/'));
   data.push({ range: `${quote(title)}!D1:${column(width - 1)}1`, values: [[...dateHeaders, ...Array(width - 3 - daily.length).fill('')]] });
   let matched = 0;
+  const mappedKeys = new Set();
   const managedMetrics = new Set(['アクセス', '男性登録数', '女性登録数', '男性年認完了数', '女性年認完了数', '男性課金者数', '男性課金額']);
   expanded.forEach((row, i) => {
     const key = adCodeMetricKey(adCodeForCurrentMonthDataRow(expanded, i), row[1]);
@@ -111,8 +112,9 @@ export function adPlan(title, rows, html, start, target, existingColumns = 0) {
     if (values.some(value => typeof value !== 'number' || !Number.isFinite(value))) throw Error(`${title}: invalid ad metric ${key}.`);
     data.push({ range: `${quote(title)}!C${i + 1}:${column(width - 1)}${i + 1}`, values: [[...values, ...Array(width - 3 - daily.length).fill('')]] });
     matched++;
+    mappedKeys.add(key);
   });
-  if (!matched || matched !== totals.size) throw Error(`${title}: incomplete ad-code/metric mapping (${matched}/${totals.size}).`);
+  if (!matched || mappedKeys.size !== totals.size) throw Error(`${title}: incomplete ad-code/metric mapping (${mappedKeys.size}/${totals.size} unique keys).`);
   // Consolidate consecutive metric rows for efficient Sheets reads and writes.
   const packed = [];
   for (const item of data) {
