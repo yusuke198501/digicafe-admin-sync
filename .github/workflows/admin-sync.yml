@@ -7,6 +7,19 @@ on:
     - cron: '10 21 * * *'
     - cron: '30 21 * * *'
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Validate DC summary sources and mapping without writes
+        type: boolean
+        default: false
+      summary_only:
+        description: Run only the migrated DC summary and advertising data update
+        type: boolean
+        default: false
+      report_date:
+        description: Target data date (YYYY-MM-DD; empty means yesterday JST)
+        type: string
+        required: false
 
 concurrency:
   group: admin-sync
@@ -15,7 +28,7 @@ concurrency:
 jobs:
   sync:
     runs-on: [self-hosted, Windows, X64, UF-0049]
-    timeout-minutes: 10
+    timeout-minutes: 30
     defaults:
       run:
         shell: powershell
@@ -35,9 +48,26 @@ jobs:
 
       - run: npm install --ignore-scripts --no-audit --no-fund
 
+      - name: Test migrated DC summary
+        id: dc_tests
+        run: node --test scripts/sync-dc-summary.test.js
+
       - run: npm run sync-admin
+        if: ${{ inputs.dry_run != true && inputs.summary_only != true }}
         env:
           ADMIN_DIGICAFE_USERNAME: ${{ secrets.ADMIN_DIGICAFE_USERNAME }}
           ADMIN_DIGICAFE_PASSWORD: ${{ secrets.ADMIN_DIGICAFE_PASSWORD }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+
+      - name: Update DC summary and advertising data on UF-0049
+        if: ${{ always() && !cancelled() && steps.dc_tests.outcome == 'success' }}
+        run: node scripts/sync-dc-summary.js
+        env:
+          DC_DRY_RUN: ${{ inputs.dry_run }}
+          REPORT_DATE: ${{ inputs.report_date }}
+          LOG_ACCOUNT: ${{ secrets.LOG_ACCOUNT }}
+          LOG_PASSWORD: ${{ secrets.LOG_PASSWORD }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+
