@@ -53,9 +53,15 @@ export function summaryRow(rows, target) {
   const heading = String(rows[0]?.[0] ?? '').replace(/\s/g, '');
   const match = heading.match(/^(\d{2,4})年(\d{1,2})月$/);
   if (!match || Number(match[1]) % 100 !== target.getUTCFullYear() % 100 || Number(match[2]) !== target.getUTCMonth() + 1) throw Error('総合 month heading differs from target; no writes.');
-  const matches = rows.flatMap((row, index) => {
+  const dateParts = row => String(row[0] ?? '').match(/^(\d{1,2})\/(\d{1,2})(?:[（(]|$)/);
+  const first = rows.findIndex(row => { const day = dateParts(row); return day && Number(day[1]) === target.getUTCMonth() + 1; });
+  let end = first;
+  while (end >= 0 && end < rows.length && dateParts(rows[end])) end++;
+  // The lower revised-goal table repeats all dates. Only the first contiguous
+  // date block under the verified month heading is the primary actuals table.
+  const matches = rows.slice(first, end).flatMap((row, offset) => {
     const day = String(row[0] ?? '').match(/^(\d{1,2})\/(\d{1,2})(?:[（(]|$)/);
-    return day && Number(day[1]) === target.getUTCMonth() + 1 && Number(day[2]) === target.getUTCDate() ? [index + 1] : [];
+    return day && Number(day[1]) === target.getUTCMonth() + 1 && Number(day[2]) === target.getUTCDate() ? [first + offset + 1] : [];
   });
   if (matches.length !== 1) throw Error('総合 target date is missing or ambiguous; no writes.');
   return matches[0];

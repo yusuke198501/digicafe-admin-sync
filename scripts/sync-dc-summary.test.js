@@ -18,6 +18,7 @@ test('summary date is found by month heading and date, never day+4',()=>{
   assert.equal(summaryRow([['26年11月'],['11/15(日)'],['11/16(月)']],target),3);
   assert.throws(()=>summaryRow([['26年10月'],['11/16(月)']],target));
   assert.throws(()=>summaryRow([['26年11月'],['11/16(月)'],['11/16(月)']],target));
+  assert.equal(summaryRow([['26年11月'],['11/15(日)'],['11/16(月)'],[],['月間平均'],[],['11/16']],target),3);
 });
 test('preserves original five metrics including period-total payers and points x10',()=>{
   const status='<table><tr><th></th><th>グロス</th><th colspan="2">有料男性</th></tr><tr><th>日時</th><th>売上</th><th>全利用Pt</th><th>課金者数</th></tr><tr><td>2026-11-16</td><td>815,500</td><td>-76,170</td><td>139</td></tr><tr><td>合計</td><td>999</td><td>-999</td><td>1,480</td></tr></table>';
