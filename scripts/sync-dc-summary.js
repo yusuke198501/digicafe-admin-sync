@@ -92,7 +92,9 @@ export function adPlan(title, rows, html, start, target, existingColumns = 0) {
   }
   const data = [];
   const width = Math.max(existingColumns, daily.length + 3);
-  const dateHeaders = Array.from({ length: daily.length }, (_, i) => iso(new Date(start.getTime() + i * DAY)).replace(/-0?/g, '/'));
+  // Native Sheets dates are numeric serials. RAW date strings break MATCH
+  // against the numeric dates used by the summary's cohort formulas.
+  const dateHeaders = Array.from({ length: daily.length }, (_, i) => start.getTime() / DAY + 25569 + i);
   data.push({ range: `${quote(title)}!D1:${column(width - 1)}1`, values: [[...dateHeaders, ...Array(width - 3 - daily.length).fill('')]] });
   let matched = 0;
   const mappedKeys = new Set();
@@ -169,6 +171,7 @@ export async function syncDcSummary() {
     const p = props(plan.title), requests = [];
     if (plan.newRows > p.gridProperties.rowCount) requests.push({ appendDimension: { sheetId:p.sheetId, dimension:'ROWS', length:plan.newRows-p.gridProperties.rowCount } });
     if (plan.columns > p.gridProperties.columnCount) requests.push({ appendDimension: { sheetId:p.sheetId, dimension:'COLUMNS', length:plan.columns-p.gridProperties.columnCount } });
+    requests.push({ repeatCell: { range:{sheetId:p.sheetId,startRowIndex:0,endRowIndex:1,startColumnIndex:3,endColumnIndex:plan.columns}, cell:{userEnteredFormat:{numberFormat:{type:'DATE',pattern:'yyyy/M/d'}}}, fields:'userEnteredFormat.numberFormat' } });
     for (let i=0;i<plan.missing.length;i++) {
       const start = plan.oldRows+i*plan.blockSize;
       requests.push({ copyPaste: { source:{sheetId:p.sheetId,startRowIndex:plan.template,endRowIndex:plan.template+plan.blockSize}, destination:{sheetId:p.sheetId,startRowIndex:start,endRowIndex:start+plan.blockSize}, pasteType:'PASTE_NORMAL' } });

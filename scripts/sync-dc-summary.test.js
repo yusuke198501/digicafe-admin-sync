@@ -31,6 +31,8 @@ test('ad plans preserve row mapping and add only missing code blocks',()=>{
   const rows=[['','項目'],['合計','other'],['広告コード','アクセス(unique)'],['old','男性登録数'],['広告コード','アクセス(unique)'],['none','男性登録数']];
   const d=new Date('2026-11-01T00:00Z');
   const plan=adPlan('当月data',rows,adHtml(),d,d);
+  assert.equal(plan.data[0].values[0][0],46327);
+  assert.equal(typeof plan.data[0].values[0][0],'number');
   assert.deepEqual(plan.missing,['new']);
   assert.equal(plan.days,1); assert.equal(plan.matched,4);
   assert.equal(plan.newRows,8);
