@@ -10,6 +10,14 @@ on:
         description: 'Set up cohort login charts and comparison only (no snapshot append)'
         type: boolean
         default: false
+      full_snapshot:
+        description: 'Collect a full current snapshot outside the regular 30-minute slot'
+        type: boolean
+        default: false
+      today_registration_probe_date:
+        description: 'Read-only registration-day DAU/receive probe, YYYY-MM-DD'
+        type: string
+        default: ''
       ga4_probe:
         description: 'Read-only GA4 realtime test'
         type: boolean
@@ -46,11 +54,12 @@ jobs:
         with:
           node-version: 22
       - run: npm install --ignore-scripts --no-audit --no-fund
-      - run: node --test scripts/final-snapshot.test.mjs scripts/ga4-snapshots.test.mjs scripts/cohort-login-charts.test.mjs scripts/cohort-logins.test.js scripts/sync-sheet8.test.js scripts/payment-points.test.js scripts/voluntary-leaves.test.js scripts/ga4-realtime.test.mjs scripts/ga4-chart.test.mjs scripts/all-received-chart.test.mjs scripts/expanded-chart.test.mjs scripts/expanded-chart.test.mjs
+      - run: node --test scripts/final-snapshot.test.mjs scripts/ga4-snapshots.test.mjs scripts/cohort-login-charts.test.mjs scripts/today-registration-charts.test.mjs scripts/cohort-logins.test.js scripts/sync-sheet8.test.js scripts/payment-points.test.js scripts/voluntary-leaves.test.js scripts/ga4-realtime.test.mjs scripts/ga4-chart.test.mjs scripts/all-received-chart.test.mjs scripts/expanded-chart.test.mjs scripts/expanded-chart.test.mjs
       - run: node scripts/sync-sheet8.js
         id: snapshot
-        if: ${{ !inputs.payment_probe }}
+        if: ${{ !inputs.payment_probe && inputs.today_registration_probe_date == '' }}
         env:
+          FORCE_FULL_COLLECTION: ${{ inputs.full_snapshot }}
           FINAL_PREVIOUS_DAY: ${{ inputs.final_previous_day }}
           COHORT_GRAPH_SETUP_ONLY: ${{ inputs.cohort_graph_setup }}
           GA4_PROBE_ONLY: ${{ inputs.ga4_probe }}
@@ -64,6 +73,13 @@ jobs:
           LOG_PASSWORD: ${{ secrets.LOG_PASSWORD }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           SPREADSHEET_ID: '1gsDZpoK1WZ4iZN4F8AqCdRw2EJotpixposi8KgIy4gU'
+      - name: Read-only registration-day metrics check
+        if: ${{ inputs.today_registration_probe_date != '' }}
+        run: node scripts/probe-today-registration.js
+        env:
+          PROBE_DATE: ${{ inputs.today_registration_probe_date }}
+          LOG_ACCOUNT: ${{ secrets.LOG_ACCOUNT }}
+          LOG_PASSWORD: ${{ secrets.LOG_PASSWORD }}
       - name: Dispatch payment-only update to UF-0049
         if: ${{ steps.snapshot.outputs.snapshot_timestamp != '' || inputs.payment_probe }}
         env:
