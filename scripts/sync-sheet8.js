@@ -2,6 +2,7 @@ import { appendFileSync } from 'node:fs';
 import { refreshGa4Chart } from './ga4-chart.mjs';
 import { fullCollectionDue, recordGa4Snapshot } from './ga4-snapshots.mjs';
 import { finalSnapshotTimestamp, isFinalSnapshotRun, saveFinalSnapshot } from './final-snapshot.mjs';
+import { refreshTodayRegistrationCharts } from './today-registration-charts.mjs';
 import { refreshCohortLoginCharts } from './cohort-login-charts.mjs';
 import { fetchGa4Realtime, ga4OrBlank } from './ga4-realtime.mjs';
 import axios from 'axios';
@@ -21,7 +22,7 @@ const BASE = 'https://log.digicafe.jp/partner/';
 const SHEET = "'シート8'";
 export function validateSnapshotDestination(sheets) {
   const sheet = sheets?.find(s => s.properties?.sheetId === 1467610996)?.properties;
-  if (!sheet || sheet.title !== 'シート8' || sheet.gridProperties?.columnCount < 31) throw new Error('シート8の書き込み先を確認できません。');
+  if (!sheet || sheet.title !== 'シート8' || sheet.gridProperties?.columnCount < 33) throw new Error('シート8の書き込み先を確認できません。');
 }
 const compact = (s) => String(s ?? '').replace(/\s/g, '');
 function number(s) {
@@ -212,6 +213,12 @@ export function cohortMailUrl(date, previousMonth = false) {
   url.search = new URLSearchParams({sex:'0',sort:'times',mail_start:date,mail_end:date,code:'',frm:'',created_at_start:(previousMonth?priorStart:monthStart).toISOString().slice(0,10),created_at_end:previousMonth?priorEnd.toISOString().slice(0,10):date,is_create:'1',disp_type:'',folder_rcv_source:'point',account_scope:'all',sum:'集計'});
   return url.href;
 }
+export function todayRegistrationMailUrl(date) {
+  const url = new URL(cohortMailUrl(date));
+  url.searchParams.set('created_at_start',date);
+  url.searchParams.set('created_at_end',date);
+  return url.href;
+}
 export function parseCohortMail(html) {
   const $ = cheerio.load(html);
   const tables = $('table').toArray().filter(t=>compact($(t).find('tr').first().text()) === '全体送信データ');
@@ -342,7 +349,7 @@ async function main() {
     const currentGa4 = await ga4OrBlank();
     if (Number.isSafeInteger(currentGa4)) await recordGa4Snapshot(sheets,spreadsheetId,actualTimestamp,currentGa4);
   }
-  if (!finalSnapshot && !fullCollectionDue(timestamp)) {
+  if (!finalSnapshot && !fullCollectionDue(timestamp) && process.env.FORCE_FULL_COLLECTION !== 'true') {
     await recordGa4Snapshot(sheets,spreadsheetId,timestamp,await fetchGa4Realtime());
     await refreshGa4Chart(sheets,spreadsheetId);
     console.log('GA4-only collection complete; normal metrics run every 30 minutes.');
@@ -355,7 +362,7 @@ async function main() {
     const candidate = String(timestamps[i][0]);
     if (!slot(candidate) || candidate >= timestamp) continue;
     if (candidate.slice(0,10) === date) {
-      previous = (await sheets.spreadsheets.values.get({spreadsheetId,range:`${SHEET}!A${i+2}:AE${i+2}`,valueRenderOption:'UNFORMATTED_VALUE'})).data.values?.[0];
+      previous = (await sheets.spreadsheets.values.get({spreadsheetId,range:`${SHEET}!A${i+2}:AG${i+2}`,valueRenderOption:'UNFORMATTED_VALUE'})).data.values?.[0];
     }
     break;
   }
@@ -410,7 +417,7 @@ async function main() {
   const [allUsagePt] = await metricOrZero('V 有料男性全利用Pt',1,async()=>[parsePaidMaleAllUsagePt(await ptHtml,{iso:date})]);
   // This endpoint has no partner navigation/logout link; validate its actual
   // form conditions and summary table instead. Never send credentials to it.
-  const [[sent,received,broadcastSent,broadcastReceived],[senders],[logins],[payers,amount],[maleReceived,maleReceivers],[clicks],[registrations,ageVerifications],[currentDau,currentReceived],[priorDau,priorReceived],[currentCohortPayers,currentCohortAmount],[priorCohortPayers,priorCohortAmount]] = await Promise.all([
+  const [[sent,received,broadcastSent,broadcastReceived],[senders],[logins],[payers,amount],[maleReceived,maleReceivers],[clicks],[registrations,ageVerifications],[currentDau,currentReceived],[priorDau,priorReceived],[currentCohortPayers,currentCohortAmount],[priorCohortPayers,priorCohortAmount],[todayDau,todayReceived]] = await Promise.all([
     metricOrZero('B/C/H/I 送受信・同報',4,async()=>parseInteractions(await mailHtml)),
     metricOrZero('D 送信ユーザー数',1,()=>memberCount('message_sent')),
     metricOrZero('E ログイン数',1,()=>memberCount('login')),
@@ -430,7 +437,8 @@ async function main() {
       // Anonymous HTTP endpoint: no partner cookies or credentials are sent.
       const response = await axios.get(cohortSalesUrl(date,prior),{timeout:45000,maxRedirects:0,headers:{'User-Agent':'Mozilla/5.0'}});
       return parseCohortSales(response.data,date,prior);
-    }))
+    })),
+    metricOrZero('AF/AG 当日登録者DAU・受信数',2,async()=>parseCohortMail(await partnerGet(todayRegistrationMailUrl(date))))
   ]);
   const [allReceived] = await metricOrZero('AA 全体受信数',1,async()=>[parseAllReceived(await mailHtml)]);
   const [paymentPoints] = await paymentPromise;
@@ -455,7 +463,11 @@ async function main() {
   row.push(carryForwardZeros([...row.slice(0,25),0,allReceived],previous)[26]);
   // AB:AD use all males; AE uses the paid-male scope of E. Keep real zero in all four.
   row.push(...cohortLogins);
-  const result = finalSnapshot ? await saveFinalSnapshot(sheets,spreadsheetId,timestamps,row) : await sheets.spreadsheets.values.append({spreadsheetId,range:`${SHEET}!A:AE`,valueInputOption:'RAW',insertDataOption:'INSERT_ROWS',requestBody:{values:[row]}});
+  // Same-day cumulative fallback matches the existing N/O cohort metrics.
+  row.push(todayDau,todayReceived);
+  const todayPair = carryForwardZeros([timestamp,...Array(30).fill(''),todayDau,todayReceived],previous);
+  row[31]=todayPair[31]; row[32]=todayPair[32];
+  const result = finalSnapshot ? await saveFinalSnapshot(sheets,spreadsheetId,timestamps,row) : await sheets.spreadsheets.values.append({spreadsheetId,range:`${SHEET}!A:AG`,valueInputOption:'RAW',insertDataOption:'INSERT_ROWS',requestBody:{values:[row]}});
   const range = result.data.updates?.updatedRange;
   if (!range) throw new Error('追記結果の範囲がありません。');
   const read = (await sheets.spreadsheets.values.get({spreadsheetId,range,valueRenderOption:'UNFORMATTED_VALUE'})).data.values;
@@ -467,6 +479,7 @@ async function main() {
   if (Number.isSafeInteger(ga4ActiveUsers)) await recordGa4Snapshot(sheets,spreadsheetId,timestamp,ga4ActiveUsers);
   if (!finalSnapshot) await refreshGraphSnapshotTime(sheets,spreadsheetId,timestamp);
   try { await refreshCohortLoginCharts(sheets,spreadsheetId); } catch { console.warn('WARNING: 登録月別ログイン数のグラフ設定を次回に持ち越します。記録は完了しています。'); }
+  try { await refreshTodayRegistrationCharts(sheets,spreadsheetId); } catch { console.warn('WARNING: 当日登録者グラフの系列確認を次回に持ち越します。記録は完了しています。'); }
   try { await refreshGa4Chart(sheets,spreadsheetId); } catch { console.warn('WARNING: GA4 chart refresh deferred; snapshot saved.'); }
   try { await refreshAgeChart(sheets,spreadsheetId); } catch { console.warn('WARNING: 年確数グラフの系列確認を次回に持ち越します。記録は完了しています。'); }
 }
