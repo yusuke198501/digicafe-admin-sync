@@ -1,3 +1,5 @@
+import {BOX_UNREAD_URL,parseBoxUnread} from './box-unread.js';
+import {refreshBoxUnreadCharts} from './box-unread-charts.mjs';
 import { appendFileSync } from 'node:fs';
 import { refreshGa4Chart } from './ga4-chart.mjs';
 import { fullCollectionDue, recordGa4Snapshot } from './ga4-snapshots.mjs';
@@ -22,7 +24,7 @@ const BASE = 'https://log.digicafe.jp/partner/';
 const SHEET = "'シート8'";
 export function validateSnapshotDestination(sheets) {
   const sheet = sheets?.find(s => s.properties?.sheetId === 1467610996)?.properties;
-  if (!sheet || sheet.title !== 'シート8' || sheet.gridProperties?.columnCount < 33) throw new Error('シート8の書き込み先を確認できません。');
+  if (!sheet || sheet.title !== 'シート8' || sheet.gridProperties?.columnCount < 37) throw new Error('シート8の書き込み先を確認できません。');
 }
 const compact = (s) => String(s ?? '').replace(/\s/g, '');
 function number(s) {
@@ -362,7 +364,7 @@ async function main() {
     const candidate = String(timestamps[i][0]);
     if (!slot(candidate) || candidate >= timestamp) continue;
     if (candidate.slice(0,10) === date) {
-      previous = (await sheets.spreadsheets.values.get({spreadsheetId,range:`${SHEET}!A${i+2}:AG${i+2}`,valueRenderOption:'UNFORMATTED_VALUE'})).data.values?.[0];
+      previous = (await sheets.spreadsheets.values.get({spreadsheetId,range:`${SHEET}!A${i+2}:AK${i+2}`,valueRenderOption:'UNFORMATTED_VALUE'})).data.values?.[0];
     }
     break;
   }
@@ -389,6 +391,13 @@ async function main() {
     if (!loggedIn) throw new Error('管理画面が未認証です。');
     return get(url);
   }
+  // Unread is an instantaneous stock: retain real zero, leave failures blank,
+  // and never write next-day current values into a historical final snapshot.
+  const unreadPromise=finalSnapshot?Promise.resolve(['','','','']):partnerGet(BOX_UNREAD_URL).then(html=>{
+    const data=parseBoxUnread(html);
+    console.log(JSON.stringify({boxUnread:{source:BOX_UNREAD_URL,...data}}));
+    return data.counts;
+  }).catch(()=>{console.warn('WARNING: BOX未読数の取得に失敗。AH:AKは空欄で記録します。');return ['','','',''];});
   const mailUrl = new URL('mailnum_uf', BASE);
   mailUrl.search = new URLSearchParams({sex:'1',sort:'times',mail_start:date,mail_end:date,created_at_start:date,created_at_end:date,folder_rcv_source:'point',account_scope:'all',sum:'集計'});
   // Independent metric groups run concurrently. One missing table, failed
@@ -455,6 +464,7 @@ async function main() {
     }catch{console.warn('WARNING: 登録月別ログイン数の過去値読込に失敗。確認済みの直前行のみ使用します。');}
     cohortLogins=carryForwardCohortLogins(cohortLogins,history,timestamp);
   }
+  const boxUnread = await unreadPromise;
   if (!collectionWindowValid(start,new Date())) throw new Error('取得が4分以上経過、または日付が変わりました。追記しません。');
   const row = carryForwardZeros(buildSnapshotRow({timestamp,sent,received,senders,logins,payers,amount,broadcastSent,broadcastReceived,maleReceived,maleReceivers,clicks,registrations,currentDau,currentReceived,currentCohortPayers,currentCohortAmount,priorDau,priorReceived,priorCohortPayers,priorCohortAmount,allUsagePt,paymentPoints,voluntaryLeaves,ageVerifications}),previous);
   // Realtime is not cumulative: preserve genuine zero and never copy stale values.
@@ -467,7 +477,8 @@ async function main() {
   row.push(todayDau,todayReceived);
   const todayPair = carryForwardZeros([timestamp,...Array(30).fill(''),todayDau,todayReceived],previous);
   row[31]=todayPair[31]; row[32]=todayPair[32];
-  const result = finalSnapshot ? await saveFinalSnapshot(sheets,spreadsheetId,timestamps,row) : await sheets.spreadsheets.values.append({spreadsheetId,range:`${SHEET}!A:AG`,valueInputOption:'RAW',insertDataOption:'INSERT_ROWS',requestBody:{values:[row]}});
+  row.push(...boxUnread);
+  const result = finalSnapshot ? await saveFinalSnapshot(sheets,spreadsheetId,timestamps,row) : await sheets.spreadsheets.values.append({spreadsheetId,range:`${SHEET}!A:AK`,valueInputOption:'RAW',insertDataOption:'INSERT_ROWS',requestBody:{values:[row]}});
   const range = result.data.updates?.updatedRange;
   if (!range) throw new Error('追記結果の範囲がありません。');
   const read = (await sheets.spreadsheets.values.get({spreadsheetId,range,valueRenderOption:'UNFORMATTED_VALUE'})).data.values;
@@ -479,6 +490,7 @@ async function main() {
   if (Number.isSafeInteger(ga4ActiveUsers)) await recordGa4Snapshot(sheets,spreadsheetId,timestamp,ga4ActiveUsers);
   if (!finalSnapshot) await refreshGraphSnapshotTime(sheets,spreadsheetId,timestamp);
   try { await refreshCohortLoginCharts(sheets,spreadsheetId); } catch { console.warn('WARNING: 登録月別ログイン数のグラフ設定を次回に持ち越します。記録は完了しています。'); }
+  try { await refreshBoxUnreadCharts(sheets,spreadsheetId); } catch { console.warn('WARNING: BOX未読数のグラフ系列確認は次回に持ち越します。'); }
   try { await refreshTodayRegistrationCharts(sheets,spreadsheetId); } catch { console.warn('WARNING: 当日登録者グラフの系列確認を次回に持ち越します。記録は完了しています。'); }
   try { await refreshGa4Chart(sheets,spreadsheetId); } catch { console.warn('WARNING: GA4 chart refresh deferred; snapshot saved.'); }
   try { await refreshAgeChart(sheets,spreadsheetId); } catch { console.warn('WARNING: 年確数グラフの系列確認を次回に持ち越します。記録は完了しています。'); }
