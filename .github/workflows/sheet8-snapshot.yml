@@ -58,7 +58,7 @@ jobs:
         with:
           node-version: 22
       - run: npm install --ignore-scripts --no-audit --no-fund
-      - run: node --test scripts/final-snapshot.test.mjs scripts/ga4-snapshots.test.mjs scripts/cohort-login-charts.test.mjs scripts/today-registration-charts.test.mjs scripts/box-unread.test.js scripts/box-unread-charts.test.mjs scripts/cohort-logins.test.js scripts/sync-sheet8.test.js scripts/payment-points.test.js scripts/voluntary-leaves.test.js scripts/ga4-realtime.test.mjs scripts/ga4-chart.test.mjs scripts/all-received-chart.test.mjs scripts/expanded-chart.test.mjs scripts/expanded-chart.test.mjs
+      - run: node --test scripts/final-snapshot.test.mjs scripts/ga4-snapshots.test.mjs scripts/cohort-login-charts.test.mjs scripts/today-registration-charts.test.mjs scripts/box-unread.test.js scripts/box-activity.test.js scripts/box-activity-charts.test.mjs scripts/box-unread-charts.test.mjs scripts/cohort-logins.test.js scripts/sync-sheet8.test.js scripts/payment-points.test.js scripts/voluntary-leaves.test.js scripts/ga4-realtime.test.mjs scripts/ga4-chart.test.mjs scripts/all-received-chart.test.mjs scripts/expanded-chart.test.mjs scripts/expanded-chart.test.mjs
       - run: node scripts/sync-sheet8.js
         id: snapshot
         if: ${{ !inputs.payment_probe && !inputs.box_unread_probe && inputs.today_registration_probe_date == '' }}
