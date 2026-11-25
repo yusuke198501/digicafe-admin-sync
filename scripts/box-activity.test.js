@@ -8,3 +8,6 @@ test('current-day interactions follow the two-level headers, preserving zeros an
 test('ambiguous or missing day headers, malformed values, missing boxes and stale data are rejected',()=>{
  for(const bad of [html.replace('>当日<','>指定日<'),html.replace('>昨日<','>当日<'),html.replace('<td>100</td>','<td>—</td>'),html.replace('<td>B</td>','<td>Q</td>'),html.replace('19:00:39','18:50:00')])assert.throws(()=>parseBoxActivity(bad,{now}));
 });
+test('a previous-day page close to midnight cannot become the new day cumulative total',()=>{
+ assert.throws(()=>parseBoxActivity(html.replace('19:00:39','23:59:59'),{now:new Date('2026-11-24T15:00:20Z')}));
+});
