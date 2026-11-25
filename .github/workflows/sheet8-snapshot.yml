@@ -2,6 +2,10 @@ name: シート8 30分集計・GA4 5分集計
 on:
   workflow_dispatch:
     inputs:
+      fetch_diagnostics:
+        description: 'Read-only timing and parser diagnostics on UF-0049'
+        type: boolean
+        default: false
       final_previous_day:
         description: 'Save previous day final totals as 23:59'
         type: boolean
@@ -62,10 +66,10 @@ jobs:
         with:
           node-version: 22
       - run: npm install --ignore-scripts --no-audit --no-fund
-      - run: node --test scripts/final-snapshot.test.mjs scripts/ga4-snapshots.test.mjs scripts/cohort-login-charts.test.mjs scripts/today-registration-charts.test.mjs scripts/box-unread.test.js scripts/box-activity.test.js scripts/box-activity-charts.test.mjs scripts/box-unread-charts.test.mjs scripts/cohort-logins.test.js scripts/sync-sheet8.test.js scripts/payment-points.test.js scripts/voluntary-leaves.test.js scripts/ga4-realtime.test.mjs scripts/ga4-chart.test.mjs scripts/all-received-chart.test.mjs scripts/expanded-chart.test.mjs scripts/expanded-chart.test.mjs
+      - run: node --test scripts/final-snapshot.test.mjs scripts/ga4-snapshots.test.mjs scripts/cohort-login-charts.test.mjs scripts/today-registration-charts.test.mjs scripts/box-unread.test.js scripts/box-activity.test.js scripts/box-activity-charts.test.mjs scripts/box-unread-charts.test.mjs scripts/cohort-logins.test.js scripts/sync-sheet8.test.js scripts/partner-report-pool.test.js scripts/payment-points.test.js scripts/voluntary-leaves.test.js scripts/ga4-realtime.test.mjs scripts/ga4-chart.test.mjs scripts/all-received-chart.test.mjs scripts/expanded-chart.test.mjs scripts/expanded-chart.test.mjs
       - run: node scripts/sync-sheet8.js
         id: snapshot
-        if: ${{ !inputs.payment_probe && !inputs.box_unread_probe && inputs.today_registration_probe_date == '' }}
+        if: ${{ !inputs.fetch_diagnostics && !inputs.payment_probe && !inputs.box_unread_probe && inputs.today_registration_probe_date == '' }}
         env:
           BOX_ACTIVITY_CHARTS_ONLY: ${{ inputs.box_activity_charts_only }}
           FORCE_FULL_COLLECTION: ${{ inputs.full_snapshot }}
@@ -82,6 +86,12 @@ jobs:
           LOG_PASSWORD: ${{ secrets.LOG_PASSWORD }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           SPREADSHEET_ID: '1gsDZpoK1WZ4iZN4F8AqCdRw2EJotpixposi8KgIy4gU'
+      - name: Read-only fetch diagnostics
+        if: ${{ inputs.fetch_diagnostics }}
+        run: node scripts/diagnose-sheet8-fetch.js
+        env:
+          LOG_ACCOUNT: ${{ secrets.LOG_ACCOUNT }}
+          LOG_PASSWORD: ${{ secrets.LOG_PASSWORD }}
       - name: Read-only BOX unread check
         if: ${{ inputs.box_unread_probe }}
         run: node scripts/probe-box-unread.js
