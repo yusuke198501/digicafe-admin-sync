@@ -39,12 +39,10 @@ async function main(){
   if(!csrf)throw Error('Login form missing');
   stage='login-submit';console.log(JSON.stringify({stage}));
   await client.post(new URL('login',BASE).href,new URLSearchParams({'signin[username]':username,'signin[password]':password,'signin[remember]':'on','signin[_csrf_token]':csrf}),{maxRedirects:0,validateStatus:s=>[200,301,302,303].includes(s)});
-  stage='history-form';console.log(JSON.stringify({stage}));
-  const $=cheerio.load((await client.get(new URL('memberPointHistory',BASE).href)).data),form=$('input[name="member_point_history_filters[member_id]"]').closest('form');
-  if(form.length!==1)throw Error('Search form missing');
-  const action=new URL(form.attr('action'),BASE);
-  if(action.origin!==new URL(BASE).origin||!action.pathname.endsWith('/memberPointHistory/filter/action'))throw Error('Unexpected filter action');
-  const body=new URLSearchParams();form.find('input[type=hidden]').each((_,e)=>{const n=$(e).attr('name');if(n)body.set(n,$(e).attr('value')||'');});body.set('member_point_history_filters[member_id]','');
+  // The observed search form has only the member/date fields and no hidden token.
+  // Submit the requested bounded date filter before loading any history listing.
+  const action=new URL('memberPointHistory/filter/action',BASE);
+  const body=new URLSearchParams();body.set('member_point_history_filters[member_id]','');
   for(const[side,date]of[['from',FROM],['to',TO]])for(const[i,p]of['year','month','day'].entries())body.set(`member_point_history_filters[created_at][${side}][${p}]`,String(Number(date.split('-')[i])));
   stage='date-search';console.log(JSON.stringify({stage}));
   await client.post(action.href,body);
