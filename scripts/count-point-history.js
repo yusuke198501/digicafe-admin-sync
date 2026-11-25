@@ -4,6 +4,7 @@ import { CookieJar } from 'tough-cookie';
 import * as cheerio from 'cheerio';
 import { writeFileSync } from 'node:fs';
 const BASE='https://admin.digicafe.jp/dadmin.php/',FROM='2026-11-24',TO='2026-11-25';
+let stage='init';
 const clean=s=>String(s??'').replace(/\s/g,'');
 function parse(html,page){
   const $=cheerio.load(html);
@@ -32,22 +33,28 @@ async function main(){
   if(process.env.COMPUTERNAME!=='UF-0049')throw Error('UF-0049 required');
   const username=process.env.ADMIN_DIGICAFE_USERNAME,password=process.env.ADMIN_DIGICAFE_PASSWORD;
   if(!username||!password)throw Error('Credentials missing');
-  const client=wrapper(axios.create({jar:new CookieJar(),timeout:45000,headers:{'User-Agent':'Mozilla/5.0','Accept-Language':'ja-JP'}}));
+  const client=wrapper(axios.create({jar:new CookieJar(),timeout:300000,headers:{'User-Agent':'Mozilla/5.0','Accept-Language':'ja-JP'}}));
+  stage='login-form';console.log(JSON.stringify({stage}));
   const login=cheerio.load((await client.get(BASE,{validateStatus:s=>s===200||s===401})).data),csrf=login('input[name="signin[_csrf_token]"]').attr('value');
   if(!csrf)throw Error('Login form missing');
+  stage='login-submit';console.log(JSON.stringify({stage}));
   await client.post(new URL('login',BASE).href,new URLSearchParams({'signin[username]':username,'signin[password]':password,'signin[remember]':'on','signin[_csrf_token]':csrf}),{maxRedirects:0,validateStatus:s=>[200,301,302,303].includes(s)});
+  stage='history-form';console.log(JSON.stringify({stage}));
   const $=cheerio.load((await client.get(new URL('memberPointHistory',BASE).href)).data),form=$('input[name="member_point_history_filters[member_id]"]').closest('form');
   if(form.length!==1)throw Error('Search form missing');
   const action=new URL(form.attr('action'),BASE);
   if(action.origin!==new URL(BASE).origin||!action.pathname.endsWith('/memberPointHistory/filter/action'))throw Error('Unexpected filter action');
   const body=new URLSearchParams();form.find('input[type=hidden]').each((_,e)=>{const n=$(e).attr('name');if(n)body.set(n,$(e).attr('value')||'');});body.set('member_point_history_filters[member_id]','');
   for(const[side,date]of[['from',FROM],['to',TO]])for(const[i,p]of['year','month','day'].entries())body.set(`member_point_history_filters[created_at][${side}][${p}]`,String(Number(date.split('-')[i])));
+  stage='date-search';console.log(JSON.stringify({stage}));
   await client.post(action.href,body);
+  stage='sort-first-page';console.log(JSON.stringify({stage}));
   const first=parse((await client.get(new URL('memberPointHistory?sort=member_point_history_id&sort_type=asc&page=1',BASE).href)).data,1);
+  console.log(JSON.stringify({dataset:{total:first.total,pages:first.pages}}));
   if(first.pages>10000||first.total>200000)throw Error('Unexpected dataset size');
   const out={host:process.env.COMPUTERNAME,filters:{from:FROM,to:TO,memberId:'all'},startedAt:new Date().toISOString(),total:first.total,pages:first.pages,scanned:0,matched:0,byDate:{},minusTwoActions:{},firstId:null,lastId:null};const seen=new Set();
   for(let page=1;page<=first.pages;page++){
-    let d=first;
+    stage='page-'+page;let d=first;
     if(page>1)for(let attempt=0;attempt<3;attempt++)try{d=parse((await client.get(new URL(`memberPointHistory?page=${page}`,BASE).href)).data,page);break;}catch(e){if(attempt===2)throw e;console.log(JSON.stringify({retryPage:page,attempt:attempt+1}));}
     if(d.total!==first.total||d.pages!==first.pages)throw Error('Dataset changed');
     if(d.rows.length!==(page<first.pages?20:first.total-20*(first.pages-1)))throw Error('Incomplete page');
@@ -63,4 +70,4 @@ async function main(){
   if(check.total!==first.total||check.rows[0].id!==first.rows[0].id)throw Error('Final reconciliation failed');
   out.completedAt=new Date().toISOString();out.reconciled=true;writeFileSync('point-history-count.json',JSON.stringify(out,null,2));console.log(JSON.stringify({pointHistoryCount:out}));
 }
-main().catch(e=>{console.error(`Point history count failed: ${e.response?.status?'HTTP '+e.response.status:e.isAxiosError?'network request failed':e.message}`);process.exitCode=1;});
+main().catch(e=>{console.error(`Point history count failed at ${stage}: ${e.response?.status?'HTTP '+e.response.status:e.isAxiosError?'network request failed '+(e.code||'unknown'):e.message}`);process.exitCode=1;});
