@@ -1,4 +1,6 @@
 import {refreshBoxActivityCharts} from './box-activity-charts.mjs';
+import {createPartnerReportPool,safeFetchFailure} from './partner-report-pool.js';
+import {networkRetry} from './network-retry.js';
 import {BOX_UNREAD_URL,parseBoxUnread,parseBoxActivity} from './box-unread.js';
 import {refreshBoxUnreadCharts} from './box-unread-charts.mjs';
 import { appendFileSync } from 'node:fs';
@@ -10,8 +12,6 @@ import { refreshCohortLoginCharts } from './cohort-login-charts.mjs';
 import { fetchGa4Realtime, ga4OrBlank } from './ga4-realtime.mjs';
 import axios from 'axios';
 import { refreshAgeChart } from './age-verification-chart.js';
-import { wrapper } from 'axios-cookiejar-support';
-import { CookieJar } from 'tough-cookie';
 import * as cheerio from 'cheerio';
 import { google } from 'googleapis';
 import { pathToFileURL } from 'node:url';
@@ -44,6 +44,10 @@ export function slot(timestamp) {
 }
 export function collectionWindowValid(start, end) {
   return end >= start && end - start < 240000 && jstTimestamp(start).slice(0,10) === jstTimestamp(end).slice(0,10);
+}
+export function acquisitionNote(timestamp,results){
+ const fresh=results.filter(r=>r.status==='fresh').map(r=>r.metric),failed=results.filter(r=>r.status==='failed').map(r=>r.metric);
+ return `取得日時: ${timestamp}\n取得成功: ${fresh.join('、')||'なし'}\n取得失敗・前回値補完対象: ${failed.join('、')||'なし'}\n正常な取得値0には既存の同日補完ルールを適用。入金ポイントは専用処理で更新。`;
 }
 export function parseAllReceived(html) {
   const $ = cheerio.load(html);
@@ -174,13 +178,14 @@ export function existingCohortLoginQuery(html, date, paidOnly = false) {
   if (paidOnly) q.set('is_paying','1'); // Same lifetime-payment scope as column E.
   return q;
 }
-export async function cohortLoginOrBlank(collect, warn = message => console.warn(message)) {
+export async function cohortLoginOrBlank(collect, warn = message => console.warn(message), report=()=>{}) {
   try {
     const count = await collect();
     if (!Number.isSafeInteger(count) || count < 0) throw new Error();
-    return count;
-  } catch {
-    warn('WARNING: 登録月別ログイン人数の取得に失敗しました。同日の直前値で補完を試みます。');
+    report({status:'fresh',values:[count]});return count;
+  } catch (error) {
+    report({status:'failed',reason:safeFetchFailure(error)});
+    warn(`WARNING: 登録月別ログイン人数の取得に失敗しました（${safeFetchFailure(error)}）。同日の直前値で補完を試みます。`);
     return '';
   }
 }
@@ -276,9 +281,9 @@ export async function metricOrZero(label, width, collect, warn = message => cons
     const values = await collect();
     if (!Array.isArray(values) || values.length !== width || values.some(v => !Number.isSafeInteger(v) || v < 0)) throw new Error();
     return values;
-  } catch {
+  } catch (error) {
     // Never print raw network errors: request configs may contain credentials.
-    warn(`WARNING: ${label} の取得に失敗。${width}項目を0扱いとし、同日直前の記録値があれば補完します。`);
+    warn(`WARNING: ${label} の取得に失敗（${safeFetchFailure(error)}）。${width}項目を0扱いとし、同日直前の記録値があれば補完します。`);
     return Array(width).fill(0);
   }
 }
@@ -373,26 +378,16 @@ async function main() {
   const ga4Promise = finalSnapshot ? Promise.resolve('') : ga4OrBlank();
   const paymentPromise = process.env.PAYMENT_POINTS_EXTERNAL === 'true' ? Promise.resolve([0]) : metricOrZero('W 入金ポイント',1,async()=>[await fetchPaymentPoints(timestamp,process.env.ADMIN_DIGICAFE_USERNAME,process.env.ADMIN_DIGICAFE_PASSWORD)]);
   const leavePromise = metricOrZero('X 男性自主退会数（毎時）',1,async()=>[await (finalSnapshot ? fetchVoluntaryLeaves(timestamp) : hourlyVoluntaryLeaves(sheets,spreadsheetId,timestamp))]);
-  const client = wrapper(axios.create({jar:new CookieJar(),timeout:45000,headers:{'User-Agent':'Mozilla/5.0','Accept-Language':'ja-JP,ja;q=0.9'}}));
-  // Do not log axios errors/configs: they can contain login credentials.
-  async function get(url) {
-    try {
-      const r = await client.get(url);
-      if (!String(r.data).includes('ログアウト') || cheerio.load(r.data)('input[type="password"]').length) throw new Error();
-      return r.data;
-    } catch { throw new Error('管理画面の取得または認証に失敗しました。'); }
-  }
-  let loggedIn = false;
-  try {
-    await client.get(BASE);
-    const login = await client.post(BASE,new URLSearchParams({mode:'login',account:required('LOG_ACCOUNT'),pass:required('LOG_PASSWORD')}));
-    if (!String(login.data).includes('ログアウト')) throw new Error();
-    loggedIn = true;
-  } catch { console.warn('WARNING: 管理画面へのログインに失敗。該当項目は同日直前値で補完し、独立した取得は続行します。'); }
-  async function partnerGet(url) {
-    if (!loggedIn) throw new Error('管理画面が未認証です。');
-    return get(url);
-  }
+  const acquisition=[];
+  const collectMetric=(label,width,collect)=>metricOrZero(label,width,async()=>{
+    try{
+      const values=await collect();
+      if(!Array.isArray(values)||values.length!==width||values.some(v=>!Number.isSafeInteger(v)||v<0))throw Error();
+      acquisition.push({metric:label,status:'fresh',values});return values;
+    }catch(error){acquisition.push({metric:label,status:'failed',reason:safeFetchFailure(error)});throw error;}
+  });
+  const pool=createPartnerReportPool({account:required('LOG_ACCOUNT'),password:required('LOG_PASSWORD'),deadline:start.getTime()+225000});
+  const partnerGet=url=>pool.get(url);
   // Unread is an instantaneous stock: retain real zero, leave failures blank,
   // and never write next-day current values into a historical final snapshot.
   const unreadPromise=finalSnapshot?Promise.resolve({counts:Array(4).fill(''),activity:Array(8).fill('')}):partnerGet(BOX_UNREAD_URL).then(html=>{
@@ -411,13 +406,13 @@ async function main() {
   const mailHtml = partnerGet(mailUrl.href);
   mailHtml.catch(() => {});
   const formHtml = partnerGet(new URL('list', BASE).href).catch(()=>null);
-  const cohortLoginPromise = Promise.all([false,true,'existing','existingPaid'].map(prior => cohortLoginOrBlank(async()=>{
+  const cohortLoginPromise = Promise.all([false,true,'existing','existingPaid'].map((prior,i) => cohortLoginOrBlank(async()=>{
     const html = await formHtml;
     if (!html) throw new Error();
     const url = new URL('list',BASE);
     url.search = typeof prior==='string' ? existingCohortLoginQuery(html,date,prior==='existingPaid') : cohortLoginQuery(html,date,prior);
     return parseMembers(await partnerGet(url.href));
-  })));
+  },message=>console.warn(message),result=>acquisition.push({metric:['AB 当月登録ログイン','AC 2ヶ月目登録ログイン','AD 既存登録ログイン','AE 入金済既存ログイン'][i],...result}))));
   async function memberCount(type) {
     const html = await formHtml;
     if (!html) throw new Error('会員検索フォームがありません。');
@@ -428,33 +423,34 @@ async function main() {
   const ptUrl = new URL('status/pt',BASE);
   ptUrl.search = new URLSearchParams({action_start:date,action_end:date,created_at_start:date,created_at_end:date,sum:'集計'});
   const ptHtml = partnerGet(ptUrl.href).catch(()=>null);
-  const [allUsagePt] = await metricOrZero('V 有料男性全利用Pt',1,async()=>[parsePaidMaleAllUsagePt(await ptHtml,{iso:date})]);
+  const publicGet=(url,label)=>networkRetry(label,async()=>{const remaining=start.getTime()+225000-Date.now();if(remaining<=0)throw new Error('Collection deadline');return axios.get(url,{timeout:Math.min(90000,remaining),maxRedirects:0,headers:{'User-Agent':'Mozilla/5.0'}});},{attempts:2});
+  const [allUsagePt] = await collectMetric('V 有料男性全利用Pt',1,async()=>[parsePaidMaleAllUsagePt(await ptHtml,{iso:date})]);
   // This endpoint has no partner navigation/logout link; validate its actual
   // form conditions and summary table instead. Never send credentials to it.
   const [[sent,received,broadcastSent,broadcastReceived],[senders],[logins],[payers,amount],[maleReceived,maleReceivers],[clicks],[registrations,ageVerifications],[currentDau,currentReceived],[priorDau,priorReceived],[currentCohortPayers,currentCohortAmount],[priorCohortPayers,priorCohortAmount],[todayDau,todayReceived]] = await Promise.all([
-    metricOrZero('B/C/H/I 送受信・同報',4,async()=>parseInteractions(await mailHtml)),
-    metricOrZero('D 送信ユーザー数',1,()=>memberCount('message_sent')),
-    metricOrZero('E ログイン数',1,()=>memberCount('login')),
-    metricOrZero('F/G 入金者数・入金額',2,async()=>parsePayers(await ptHtml,date)),
-    metricOrZero('J/K 男性メール受信数・人数',2,async()=>{
-      const response = await axios.get(maleReceiveUrl(date),{timeout:45000,headers:{'User-Agent':'Mozilla/5.0'}});
+    collectMetric('B/C/H/I 送受信・同報',4,async()=>parseInteractions(await mailHtml)),
+    collectMetric('D 送信ユーザー数',1,()=>memberCount('message_sent')),
+    collectMetric('E ログイン数',1,()=>memberCount('login')),
+    collectMetric('F/G 入金者数・入金額',2,async()=>parsePayers(await ptHtml,date)),
+    collectMetric('J/K 男性メール受信数・人数',2,async()=>{
+      const response = await publicGet(maleReceiveUrl(date),'male received report');
       return parseMaleReceive(response.data,date);
     }),
-    metricOrZero('L 広告クリック数',1,async()=>[await fetchClickCount(timestamp,process.env.CATS_API_TOKEN)]),
-    metricOrZero('M 新規登録数 / Y 年確数',2,async()=>{
+    collectMetric('L 広告クリック数',1,async()=>[await fetchClickCount(timestamp,process.env.CATS_API_TOKEN)]),
+    collectMetric('M 新規登録数 / Y 年確数',2,async()=>{
       const metrics = parseRegistrationMetrics(await partnerGet(registrationUrl(date)),date);
       return [metrics.registrations,metrics.ageVerifications];
     }),
-    metricOrZero('N/O 当月DAU・受信数',2,async()=>parseCohortMail(await partnerGet(cohortMailUrl(date)))),
-    metricOrZero('R/S 2ヶ月目DAU・受信数',2,async()=>parseCohortMail(await partnerGet(cohortMailUrl(date,true)))),
-    ...[false,true].map(prior => metricOrZero(prior?'T/U 2ヶ月目課金者・課金額':'P/Q 当月課金者・課金額',2,async()=>{
+    collectMetric('N/O 当月DAU・受信数',2,async()=>parseCohortMail(await partnerGet(cohortMailUrl(date)))),
+    collectMetric('R/S 2ヶ月目DAU・受信数',2,async()=>parseCohortMail(await partnerGet(cohortMailUrl(date,true)))),
+    ...[false,true].map(prior => collectMetric(prior?'T/U 2ヶ月目課金者・課金額':'P/Q 当月課金者・課金額',2,async()=>{
       // Anonymous HTTP endpoint: no partner cookies or credentials are sent.
-      const response = await axios.get(cohortSalesUrl(date,prior),{timeout:45000,maxRedirects:0,headers:{'User-Agent':'Mozilla/5.0'}});
+      const response = await publicGet(cohortSalesUrl(date,prior),'cohort sales report');
       return parseCohortSales(response.data,date,prior);
     })),
-    metricOrZero('AF/AG 当日登録者DAU・受信数',2,async()=>parseCohortMail(await partnerGet(todayRegistrationMailUrl(date))))
+    collectMetric('AF/AG 当日登録者DAU・受信数',2,async()=>parseCohortMail(await partnerGet(todayRegistrationMailUrl(date))))
   ]);
-  const [allReceived] = await metricOrZero('AA 全体受信数',1,async()=>[parseAllReceived(await mailHtml)]);
+  const [allReceived] = await collectMetric('AA 全体受信数',1,async()=>[parseAllReceived(await mailHtml)]);
   const [paymentPoints] = await paymentPromise;
   const [voluntaryLeaves] = await leavePromise;
   const ga4ActiveUsers = await ga4Promise;
@@ -492,6 +488,13 @@ async function main() {
   if (JSON.stringify(verified) !== JSON.stringify(row)) throw new Error('追記後の照合に失敗しました。');
   console.log(JSON.stringify({range,row}));
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `snapshot_timestamp=${timestamp}\n`);
+  console.log(JSON.stringify({snapshotAcquisition:{timestamp,results:acquisition}}));
+  const failed=acquisition.filter(r=>r.status==='failed');
+  if(failed.length)console.warn(`::warning title=シート8の一部取得失敗::${failed.map(r=>r.metric).join('、')} は新規取得できず、既存の補完ルールを適用しています。`);
+  try{
+    const rowIndex=Number(range.match(/!A(\d+):/)?.[1])-1;
+    if(Number.isSafeInteger(rowIndex)&&rowIndex>=1)await sheets.spreadsheets.batchUpdate({spreadsheetId,requestBody:{requests:[{updateCells:{start:{sheetId:1467610996,rowIndex,columnIndex:0},rows:[{values:[{note:acquisitionNote(timestamp,acquisition)}]}],fields:'note'}}]}});
+  }catch{console.warn('WARNING: 取得状況メモの追記に失敗。実行ログを確認してください。記録値は保存済みです。');}
   if (Number.isSafeInteger(ga4ActiveUsers)) await recordGa4Snapshot(sheets,spreadsheetId,timestamp,ga4ActiveUsers);
   if (!finalSnapshot) await refreshGraphSnapshotTime(sheets,spreadsheetId,timestamp);
   try { await refreshCohortLoginCharts(sheets,spreadsheetId); } catch { console.warn('WARNING: 登録月別ログイン数のグラフ設定を次回に持ち越します。記録は完了しています。'); }

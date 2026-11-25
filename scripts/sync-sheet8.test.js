@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { clickWindows, parseClickCount, fetchClickCount } from './cats-clicks.js';
-import { metricOrZero } from './sync-sheet8.js';
+import { metricOrZero,acquisitionNote } from './sync-sheet8.js';
 import { validateSnapshotDestination } from './sync-sheet8.js';
 import { carryForwardZeros } from './sync-sheet8.js';
 import { cohortMailUrl, parseCohortMail } from './sync-sheet8.js';
@@ -77,6 +77,10 @@ test('every failed metric group has numeric zero fallback, no secret leakage',as
     assert.deepEqual(await metricOrZero('test',width,async()=>{throw new Error('private-token');},m=>warnings.push(m)),Array(width).fill(0));
     assert.equal(warnings.length,1);assert.equal(warnings[0].includes('private-token'),false);
   }
+});
+test('snapshot notes distinguish fresh counts from failed groups without exposing raw error data',()=>{
+ const note=acquisitionNote('2026-11-25 11:00:00',[{metric:'D 送信人数',status:'fresh',values:[200]},{metric:'E ログイン人数',status:'failed',reason:'private-error'}]);
+ assert.ok(note.includes('取得成功: D 送信人数'));assert.ok(note.includes('前回値補完対象: E ログイン人数'));assert.ok(!note.includes('private-error'));
 });
 test('successful zero and valid values remain unchanged; malformed values become zero',async()=>{
   assert.deepEqual(await metricOrZero('test',2,async()=>[0,42]),[0,42]);
