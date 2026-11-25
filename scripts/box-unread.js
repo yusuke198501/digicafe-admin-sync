@@ -28,6 +28,8 @@ export function parseBoxUnread(html,{now=new Date()}={}){
 // or yesterday column for the current-day interaction counts.
 export function parseBoxActivity(html,options={}){
  const {sourceUpdatedAt}=parseBoxUnread(html,options),$=cheerio.load(html);
+ const today=new Date((options.now??new Date()).getTime()+9*3600000).toISOString().slice(0,10);
+ if(sourceUpdatedAt.slice(0,10)!==today)throw Error('BOX送受信: 更新元の日付が当日ではありません。');
  const table=$('table').toArray().find(t=>{
   const cells=$(t).find('tr').first().children('th,td');
   return norm(cells.eq(0).text())==='BOX'&&norm(cells.eq(1).text())==='現在の未読数';

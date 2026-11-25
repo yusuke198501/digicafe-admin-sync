@@ -18,6 +18,10 @@ on:
         description: 'Read-only registration-day DAU/receive probe, YYYY-MM-DD'
         type: string
         default: ''
+      box_activity_charts_only:
+        description: 'Refresh BOX interaction charts only (no source collection or snapshot append)'
+        type: boolean
+        default: false
       box_unread_probe:
         description: 'Read-only current BOX unread count check'
         type: boolean
@@ -46,7 +50,7 @@ jobs:
     defaults:
       run:
         shell: powershell
-    timeout-minutes: 4
+    timeout-minutes: 6
     steps:
       - name: Verify dedicated PC
         run: |
@@ -63,6 +67,7 @@ jobs:
         id: snapshot
         if: ${{ !inputs.payment_probe && !inputs.box_unread_probe && inputs.today_registration_probe_date == '' }}
         env:
+          BOX_ACTIVITY_CHARTS_ONLY: ${{ inputs.box_activity_charts_only }}
           FORCE_FULL_COLLECTION: ${{ inputs.full_snapshot }}
           FINAL_PREVIOUS_DAY: ${{ inputs.final_previous_day }}
           COHORT_GRAPH_SETUP_ONLY: ${{ inputs.cohort_graph_setup }}

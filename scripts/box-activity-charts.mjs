@@ -61,17 +61,39 @@ export const METRICS = [
     "offset": 70
   }
 ];
+export const CACHE_ID=1926112420;
+export const CACHE_TITLE='_BOX送受信参照';
+function cached(column,date){
+ const group=date.includes('$E$3')?10:date.includes('$H$3')?20:date==='month'?30:0;
+ const i=METRICS.findIndex(m=>m.column===column);if(i<0)throw Error('Unknown BOX metric');
+ const sheet="'"+CACHE_TITLE+"'!",last='MAX(2,'+sheet+'$'+col(group+9)+'$1+1)';
+ const range=c=>sheet+'$'+col(c)+'$2:INDEX('+sheet+'$'+col(c)+':$'+col(c)+','+last+')';
+ return {stamp:range(group),value:range(group+1+i)};
+}
+export function cacheRequests(book){
+ const existing=book.sheets.find(s=>s.properties.title===CACHE_TITLE);
+ if(existing&&existing.properties.sheetId!==CACHE_ID)throw Error('BOX参照シートが一致しません');
+ if(book.sheets.some(s=>s.properties.sheetId===CACHE_ID&&s.properties.title!==CACHE_TITLE))throw Error('BOX参照IDが使用中です');
+ const requests=existing?[]:[{addSheet:{properties:{sheetId:CACHE_ID,title:CACHE_TITLE,hidden:true,gridProperties:{rowCount:10000,columnCount:40}}}}];
+ for(const [offset,date] of [[0,"'グラフ'!$B$3"],[10,"'グラフ'!$E$3"],[20,"'グラフ'!$H$3"],[30,'month']]){
+  const st="'シート8'!$A$2:$A",v="'シート8'!$AL$2:$AS";
+  const criteria=date==='month'?`LEFT(${st},7)=TEXT('グラフ'!$B$3,"yyyy-mm"),LEFT(${st},10)<TEXT('グラフ'!$B$3,"yyyy-mm-dd")`:`LEFT(${st},10)=TEXT(${date},"yyyy-mm-dd")`;
+  const formula='=IFERROR(FILTER({'+st+',ARRAYFORMULA(IF(ISNUMBER('+v+'),'+v+',""))},'+criteria+',MMULT(ARRAYFORMULA(N(ISNUMBER('+v+'))),SEQUENCE(8,1,1,0))>0),"")';
+  requests.push({updateCells:{start:{sheetId:CACHE_ID,rowIndex:1,columnIndex:offset},rows:[{values:[cell(formula)]}],fields:'userEnteredValue'}},{updateCells:{start:{sheetId:CACHE_ID,rowIndex:0,columnIndex:offset+9},rows:[{values:[cell('=COUNTIF('+col(offset)+'2:'+col(offset)+'10000,"????-??-??*")')]}],fields:'userEnteredValue'}});
+ }
+ return requests;
+}
 const graph = "'グラフ'!";
 function col(i) {let s='';for(let n=i+1;n;n=Math.floor((n-1)/26))s=String.fromCharCode(65+(n-1)%26)+s;return s;}
 function cell(value) {return {userEnteredValue:typeof value==='number'?{numberValue:value}:String(value).startsWith('=')?{formulaValue:value}:{stringValue:String(value)}};}
 // Same date-scoped, last-record lookup used by the existing comparison table.
 export function snapshotFormula(column,date,time) {
-  const stamp="'シート8'!$A$2:$A", value=`'シート8'!$${column}$2:$${column}`;
+  const {stamp,value}=cached(column,date);
   const limit=`TEXT(${date}+FLOOR(MIN(${time},1-1/1440),1/1440)+TIME(0,0,59),"yyyy-mm-dd hh:mm:ss")`;
   return `=IFERROR(LET(st,FILTER(${stamp},LEFT(${stamp},10)=TEXT(${date},"yyyy-mm-dd"),ISNUMBER(${value})),v,FILTER(${value},LEFT(${stamp},10)=TEXT(${date},"yyyy-mm-dd"),ISNUMBER(${value})),INDEX(v,XMATCH(${limit},st,-1,-1))),"")`;
 }
 function meanFormula(column,time) {
-  const st="'シート8'!$A$2:$A", v=`'シート8'!$${column}$2:$${column}`;
+  const {stamp:st,value:v}=cached(column,'month');
   const criteria=`ISNUMBER(${v}),LEFT(${st},10)>=TEXT(EOMONTH(${graph}$B$3,-1)+1,"yyyy-mm-dd"),LEFT(${st},10)<TEXT(${graph}$B$3,"yyyy-mm-dd")`;
   return `=IFERROR(LET(st,FILTER(${st},${criteria}),v,FILTER(${v},${criteria}),days,UNIQUE(ARRAYFORMULA(LEFT(st,10))),AVERAGE(MAP(days,LAMBDA(day,IFERROR(LET(idx,XMATCH(day&" "&TEXT(MIN(${time},1-1/1440)+TIME(0,0,59),"hh:mm:ss"),st,-1,-1),IF(LEFT(INDEX(st,idx),10)=day,INDEX(v,idx),"")),""))))),"")`;
 }
@@ -82,7 +104,7 @@ export function helperRows() {
     const o=m.offset,t=col(o),latest=col(o+6),base=col(o+7),actual=col(o+8),compare=col(o+2);
     rows[0][o]=m.name;rows[0][o+6]='最終取得日時';rows[0][o+7]='比較日・予測基準';rows[0][o+8]='対象日・最終値';
     ['時刻','対象日','比較日','7日前','予測','当月平均（月初～前日）'].forEach((s,i)=>rows[1][o+i]=s);
-    const stamps="'シート8'!$A$2:$A",values=`'シート8'!$${m.column}$2:$${m.column}`;
+    const {stamp:stamps,value:values}=cached(m.column,'target');
     rows[1][o+6]=`=IFERROR(INDEX(SORT(FILTER(${stamps},LEFT(${stamps},10)=TEXT(${graph}$B$3,"yyyy-mm-dd"),ISNUMBER(${values})),1,FALSE),1),"")`;
     rows[1][o+7]=snapshotFormula(m.column,`${graph}$E$3`,`IFERROR(TIMEVALUE(RIGHT($${latest}$2,8)),0)`);
     rows[1][o+8]=snapshotFormula(m.column,`${graph}$B$3`,'1');
@@ -112,7 +134,7 @@ export function chartRequests(book,rowMetadata=[]) {
   if(book.sheets.some(s=>s.properties.sheetId===HELPER_ID&&s.properties.title!==HELPER_TITLE))throw Error('計算用シートIDが使用中です。');
   const helper=book.sheets.find(s=>s.properties.title===HELPER_TITLE);
   if(helper&&helper.properties.sheetId!==HELPER_ID)throw Error('計算用シートを確認できません。');
-  const requests=[];
+  const requests=cacheRequests(book);
   if(!helper)requests.push({addSheet:{properties:{sheetId:HELPER_ID,title:HELPER_TITLE,hidden:true,gridProperties:{rowCount:60,columnCount:80}}}});
   const small=charts.filter(c=>!METRICS.some(m=>m.chartId===c.chartId)&&c.chartId!==2027820698&&c.position?.overlayPosition?.anchorCell?.rowIndex>=8);
   const top=Math.min(...small.map(c=>c.position.overlayPosition.anchorCell.rowIndex));

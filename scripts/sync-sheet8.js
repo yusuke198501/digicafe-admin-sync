@@ -347,6 +347,7 @@ async function main() {
   // A:Y positions are fixed by agreement; display labels may be renamed.
   const metadata = await sheets.spreadsheets.get({spreadsheetId,fields:'sheets(properties(sheetId,title,gridProperties(columnCount)))'});
   validateSnapshotDestination(metadata.data.sheets);
+  if(process.env.BOX_ACTIVITY_CHARTS_ONLY==='true'){await refreshBoxActivityCharts(sheets,spreadsheetId);console.log('BOX activity charts refreshed: no snapshot appended.');return;}
   if(process.env.COHORT_GRAPH_SETUP_ONLY==='true'){await refreshCohortLoginCharts(sheets,spreadsheetId);console.log('Graph setup only: no snapshot was appended.');return;}
   if (finalSnapshot) {
     const currentGa4 = await ga4OrBlank();
