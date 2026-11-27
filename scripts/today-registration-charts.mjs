@@ -2,7 +2,7 @@ export const GRAPH_ID = 174166888;
 export const HELPER_ID = 1926112101;
 export const HELPER_TITLE = '_当日登録者グラフ';
 export const VERSION = 'today-registration-v1';
-export const SUBTITLE = '実線：実績／青い破線：予測（比較日の推移基準）';
+export const SUBTITLE = '実線：実績／青い破線：予測（過去実績基準）';
 export const METRICS = [
   {name:'当日登録者DAU',column:'AF',chartId:1926112102,comparisonRow:42,offset:0},
   {name:'当日登録者受信数',column:'AG',chartId:1926112103,comparisonRow:43,offset:10}

@@ -15,7 +15,7 @@ export async function refreshAllReceivedChart(sheets,spreadsheetId) {
   // Keep a correctly styled empty target series until the selected day has records.
   const shown=series.length?series:allReceivedSeries([[],[0,0]]);
   const domains=[{domain:{sourceRange:{sources:[{sheetId:174166888,startRowIndex:1656,endRowIndex:1705,startColumnIndex:41,endColumnIndex:42}]}}}];
-  const spec={...(existing?.spec??template.spec),title:ALL_RECEIVED_CHART_TITLE,subtitle:'実線＝実績／青い破線＝当日予測（比較日基準）',basicChart:{...(existing?.spec?.basicChart??template.spec.basicChart),domains,series:shown,headerCount:1,interpolateNulls:false,axis:[{position:'BOTTOM_AXIS',title:'時刻'},{position:'LEFT_AXIS',title:'通'}]}};
+  const spec={...(existing?.spec??template.spec),title:ALL_RECEIVED_CHART_TITLE,subtitle:'実線＝実績／青い破線＝当日予測（過去実績基準）',basicChart:{...(existing?.spec?.basicChart??template.spec.basicChart),domains,series:shown,headerCount:1,interpolateNulls:false,axis:[{position:'BOTTOM_AXIS',title:'時刻'},{position:'LEFT_AXIS',title:'通'}]}};
   const requests=[];
   if(!existing) {
     const ga=charts.find(c=>c.chartId===546867842)?.position?.overlayPosition;

@@ -1,4 +1,5 @@
 import {refreshBoxActivityCharts} from './box-activity-charts.mjs';
+import {refreshHistoricalForecast} from './refresh-historical-forecast.mjs';
 import {createPartnerReportPool,safeFetchFailure} from './partner-report-pool.js';
 import {networkRetry} from './network-retry.js';
 import {BOX_UNREAD_URL,parseBoxUnread,parseBoxActivity} from './box-unread.js';
@@ -352,6 +353,10 @@ async function main() {
   // A:Y positions are fixed by agreement; display labels may be renamed.
   const metadata = await sheets.spreadsheets.get({spreadsheetId,fields:'sheets(properties(sheetId,title,gridProperties(columnCount)))'});
   validateSnapshotDestination(metadata.data.sheets);
+  if(process.env.FORECAST_SETUP_ONLY==='true'){
+    await refreshHistoricalForecast(sheets,spreadsheetId,{force:true,backupPath:'forecast-formula-backup.json'});
+    console.log('Historical forecast setup complete; no source data was changed.');return;
+  }
   if(process.env.BOX_ACTIVITY_CHARTS_ONLY==='true'){await refreshBoxActivityCharts(sheets,spreadsheetId);console.log('BOX activity charts refreshed: no snapshot appended.');return;}
   if(process.env.COHORT_GRAPH_SETUP_ONLY==='true'){await refreshCohortLoginCharts(sheets,spreadsheetId);console.log('Graph setup only: no snapshot was appended.');return;}
   if (finalSnapshot) {
@@ -503,5 +508,6 @@ async function main() {
   try { await refreshTodayRegistrationCharts(sheets,spreadsheetId); } catch { console.warn('WARNING: 当日登録者グラフの系列確認を次回に持ち越します。記録は完了しています。'); }
   try { await refreshGa4Chart(sheets,spreadsheetId); } catch { console.warn('WARNING: GA4 chart refresh deferred; snapshot saved.'); }
   try { await refreshAgeChart(sheets,spreadsheetId); } catch { console.warn('WARNING: 年確数グラフの系列確認を次回に持ち越します。記録は完了しています。'); }
+  try { await refreshHistoricalForecast(sheets,spreadsheetId); } catch { console.warn('WARNING: 過去実績予測モデルの更新は次回に持ち越します。取得データは保存済みです。'); }
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main().catch(e => { console.error(e.message); process.exitCode = 1; });

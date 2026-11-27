@@ -2,7 +2,7 @@ export const GRAPH_ID = 174166888;
 export const HELPER_ID = 1926112410;
 export const HELPER_TITLE = '_BOX送受信グラフ';
 export const VERSION = 'box-activity-v1';
-export const SUBTITLE = '実線：実績／青い破線：予測（比較日の推移基準）';
+export const SUBTITLE = '実線：実績／青い破線：予測（過去実績基準）';
 export const METRICS = [
   {
     "name": "BOX A やりとり送信数",
