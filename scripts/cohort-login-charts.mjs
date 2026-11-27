@@ -2,7 +2,7 @@ export const GRAPH_ID = 174166888;
 export const HELPER_ID = 1926103001;
 export const HELPER_TITLE = '_登録月別ログイングラフ';
 export const VERSION = 'cohort-logins-v4';
-export const SUBTITLE = '実線：実績／青い破線：予測（比較日の推移基準）';
+export const SUBTITLE = '実線：実績／青い破線：予測（過去実績基準）';
 export const METRICS = [
   {name:'当月登録者ログイン数',column:'AB',chartId:1926103002,comparisonRow:39,offset:0},
   {name:'２ヶ月目登録者ログイン数',column:'AC',chartId:1926103003,comparisonRow:40,offset:10}

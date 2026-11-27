@@ -2,6 +2,10 @@ name: シート8 30分集計・GA4 5分集計
 on:
   workflow_dispatch:
     inputs:
+      forecast_setup:
+        description: 'Refresh historical forecasts only; no source collection or snapshot writes'
+        type: boolean
+        default: false
       fetch_diagnostics:
         description: 'Read-only timing and parser diagnostics on UF-0049'
         type: boolean
@@ -66,11 +70,12 @@ jobs:
         with:
           node-version: 22
       - run: npm install --ignore-scripts --no-audit --no-fund
-      - run: node --test scripts/final-snapshot.test.mjs scripts/ga4-snapshots.test.mjs scripts/cohort-login-charts.test.mjs scripts/today-registration-charts.test.mjs scripts/box-unread.test.js scripts/box-activity.test.js scripts/box-activity-charts.test.mjs scripts/box-unread-charts.test.mjs scripts/cohort-logins.test.js scripts/sync-sheet8.test.js scripts/partner-report-pool.test.js scripts/payment-points.test.js scripts/voluntary-leaves.test.js scripts/ga4-realtime.test.mjs scripts/ga4-chart.test.mjs scripts/all-received-chart.test.mjs scripts/expanded-chart.test.mjs scripts/expanded-chart.test.mjs
+      - run: node --test scripts/historical-forecast.test.mjs scripts/final-snapshot.test.mjs scripts/ga4-snapshots.test.mjs scripts/cohort-login-charts.test.mjs scripts/today-registration-charts.test.mjs scripts/box-unread.test.js scripts/box-activity.test.js scripts/box-activity-charts.test.mjs scripts/box-unread-charts.test.mjs scripts/cohort-logins.test.js scripts/sync-sheet8.test.js scripts/partner-report-pool.test.js scripts/payment-points.test.js scripts/voluntary-leaves.test.js scripts/ga4-realtime.test.mjs scripts/ga4-chart.test.mjs scripts/all-received-chart.test.mjs scripts/expanded-chart.test.mjs scripts/expanded-chart.test.mjs
       - run: node scripts/sync-sheet8.js
         id: snapshot
         if: ${{ !inputs.fetch_diagnostics && !inputs.payment_probe && !inputs.box_unread_probe && inputs.today_registration_probe_date == '' }}
         env:
+          FORECAST_SETUP_ONLY: ${{ inputs.forecast_setup }}
           BOX_ACTIVITY_CHARTS_ONLY: ${{ inputs.box_activity_charts_only }}
           FORCE_FULL_COLLECTION: ${{ inputs.full_snapshot }}
           FINAL_PREVIOUS_DAY: ${{ inputs.final_previous_day }}
@@ -86,6 +91,13 @@ jobs:
           LOG_PASSWORD: ${{ secrets.LOG_PASSWORD }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           SPREADSHEET_ID: '1gsDZpoK1WZ4iZN4F8AqCdRw2EJotpixposi8KgIy4gU'
+      - name: Save forecast formula backup
+        if: ${{ inputs.forecast_setup && always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: forecast-formula-backup
+          path: forecast-formula-backup.json
+          retention-days: 7
       - name: Read-only fetch diagnostics
         if: ${{ inputs.fetch_diagnostics }}
         run: node scripts/diagnose-sheet8-fetch.js
